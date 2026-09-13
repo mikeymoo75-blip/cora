@@ -346,15 +346,15 @@ export function pumpSignal(
 ): "buy" | "sell" | "hold" {
   const spark = quote.spark;
   const last = quote.price;
-  if (spark.length < 4 || last <= 0) return "hold";
+  if (spark.length < 2 || last <= 0) return "hold";
 
   const recent = spark.slice(style === "scalp" ? -4 : -6);
   const recentHigh = Math.max(...recent);
-  const rising = last > (spark[spark.length - 3] ?? last);
-  const nearHigh = last >= recentHigh * (style === "scalp" ? 0.98 : 0.97);
+  const rising = last >= (spark[spark.length - 2] ?? last);
+  const nearHigh = last >= recentHigh * (style === "scalp" ? 0.96 : 0.94);
   const lookback = spark[spark.length - Math.min(spark.length, 6)] ?? last;
-  const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : 0;
-  const alreadyDumping = last < recentHigh * 0.92 || ret < -2;
+  const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : quote.changePct;
+  const alreadyDumping = last < recentHigh * 0.9 || ret < -4;
 
   if (pos) {
     const fromPeak = ((last - pos.peak) / pos.peak) * 100;
@@ -370,8 +370,8 @@ export function pumpSignal(
   }
 
   if (alreadyDumping || !rising || !nearHigh) return "hold";
-  if (style === "scalp" && ret > 4) return "buy";
-  if (style === "sniper" && ret > 6) return "buy";
+  if (style === "scalp" && ret > 3.5) return "buy";
+  if (style === "sniper" && ret > 5) return "buy";
   return "hold";
 }
 
@@ -644,6 +644,7 @@ export function tickBots(state: DeskState): DeskState {
 
     bot.lastTickAt = Date.now();
     let acted = false;
+    let skipNote = "";
     const maxNames = Math.max(1, bot.maxNames || 4);
 
     // Mark peaks + sell names this bot still holds.
@@ -698,7 +699,7 @@ export function tickBots(state: DeskState): DeskState {
       const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
       if (size < 5) continue;
       if (feeWouldEat(quote.kind, quote.symbol, size)) {
-        bot.lastReason = `Skipped ${quote.symbol}: network fees would eat a $${size.toFixed(0)} ticket.`;
+        skipNote = `Skipped ${quote.symbol}: network fees would eat a $${size.toFixed(0)} ticket.`;
         continue;
       }
       const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
@@ -727,10 +728,17 @@ export function tickBots(state: DeskState): DeskState {
       const heldNow = ownedSymbols(next, bot.id);
       bot.lastSignal = "scanning";
       bot.lastReason =
-        bot.scope === "one"
+        skipNote ||
+        (bot.scope === "one"
           ? `Watching ${next.quotes[bot.symbol]?.symbol ?? bot.symbol} — no buy or sell yet.`
-          : `Scanned ${n} name${n === 1 ? "" : "s"}. Holding ${heldNow.length}/${maxNames}. No new signal this pass.`;
-      if (universe.some((q) => q.kind === "stock") && !rth && bot.scope !== "crypto" && bot.scope !== "pump") {
+          : `Scanned ${n} name${n === 1 ? "" : "s"}. Holding ${heldNow.length}/${maxNames}. No new signal this pass.`);
+      if (
+        !skipNote &&
+        universe.some((q) => q.kind === "stock") &&
+        !rth &&
+        bot.scope !== "crypto" &&
+        bot.scope !== "pump"
+      ) {
         bot.lastReason += " Stock names wait until 9:30–4:00 ET.";
       }
     }
@@ -752,7 +760,12 @@ export function mergeQuotes(
     const spark = [...(old?.spark ?? []), q.price].slice(-48);
     const base = spark.length >= 6 ? spark[spark.length - 6]! : spark[0]!;
     const changePct = base > 0 ? ((q.price - base) / base) * 100 : q.changePct;
-    out[q.id] = { ...q, spark, changePct: Number.isFinite(changePct) ? changePct : q.changePct };
+    out[q.id] = {
+      ...q,
+      spark,
+      changePct: Number.isFinite(changePct) ? changePct : q.changePct,
+      seenAt: Date.now(),
+    };
   }
   return out;
 }
@@ -764,9 +777,13 @@ export function prunePumpQuotes(
 ): Record<string, Quote> {
   const liveIds = new Set(liveIncoming.filter((q) => q.kind === "pump" && q.live).map((q) => q.id));
   if (!liveIds.size) return quotes;
+  const now = Date.now();
+  const keepMs = 20 * 60 * 1000;
   const out: Record<string, Quote> = {};
   for (const q of Object.values(quotes)) {
-    if (q.kind !== "pump" || liveIds.has(q.id) || held.has(q.id)) out[q.id] = q;
+    if (q.kind !== "pump" || liveIds.has(q.id) || held.has(q.id) || now - (q.seenAt || 0) < keepMs) {
+      out[q.id] = q;
+    }
   }
   return out;
 }

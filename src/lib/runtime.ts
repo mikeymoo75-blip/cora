@@ -81,7 +81,7 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
-      sizeUsd: 10,
+      sizeUsd: 20,
       scope: "pump",
       maxNames: 3,
       lastSignal: "idle",
@@ -95,7 +95,7 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "scalp",
-      sizeUsd: 10,
+      sizeUsd: 20,
       scope: "pump",
       maxNames: 3,
       lastSignal: "idle",
@@ -305,6 +305,10 @@ function fitBotsToBank(state: DeskState): DeskState {
   let changed = false;
   const bots = state.bots.map((b) => {
     const f = fresh.get(b.id);
+    if (f && b.scope === "pump" && b.sizeUsd < f.sizeUsd) {
+      changed = true;
+      return { ...b, sizeUsd: f.sizeUsd, maxNames: Math.max(b.maxNames, f.maxNames) };
+    }
     if (f && (b.sizeUsd > f.sizeUsd || b.maxNames > f.maxNames)) {
       changed = true;
       return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };

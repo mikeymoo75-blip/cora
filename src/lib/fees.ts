@@ -73,5 +73,6 @@ export function roundTripFee(
 
 export function feeWouldEat(kind: MarketKind, symbol: string, notional: number): boolean {
   if (notional <= 0) return true;
-  return roundTripFee(kind, symbol, notional) > notional * 0.025;
+  const cap = kind === "pump" ? 0.08 : 0.025;
+  return roundTripFee(kind, symbol, notional) > notional * cap;
 }

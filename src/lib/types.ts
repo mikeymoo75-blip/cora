@@ -12,6 +12,7 @@ export type Quote = {
   volume: number;
   spark: number[];
   live: boolean;
+  seenAt?: number;
 };
 
 export type Position = {
