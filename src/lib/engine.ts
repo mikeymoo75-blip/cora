@@ -352,24 +352,26 @@ export function pumpSignal(
   const recentHigh = Math.max(...recent);
   const rising = last > (spark[spark.length - 3] ?? last);
   const nearHigh = last >= recentHigh * (style === "scalp" ? 0.98 : 0.97);
-  const alreadyDumping = last < recentHigh * 0.92 || quote.changePct < 0;
+  const lookback = spark[spark.length - Math.min(spark.length, 6)] ?? last;
+  const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : 0;
+  const alreadyDumping = last < recentHigh * 0.92 || ret < -2;
 
   if (pos) {
     const fromPeak = ((last - pos.peak) / pos.peak) * 100;
     const fromEntry = ((last - pos.avg) / pos.avg) * 100;
     if (style === "scalp") {
       if (fromPeak <= -4 || fromEntry <= -8 || fromEntry >= 12) return "sell";
-      if (quote.changePct < -8 || ticksFalling(spark, 3)) return "sell";
+      if (ret < -8 || ticksFalling(spark, 3)) return "sell";
     } else {
       if (fromPeak <= -7 || fromEntry <= -12 || fromEntry >= 28) return "sell";
-      if (quote.changePct < -10 || ticksFalling(spark, 4)) return "sell";
+      if (ret < -10 || ticksFalling(spark, 4)) return "sell";
     }
     return "hold";
   }
 
   if (alreadyDumping || !rising || !nearHigh) return "hold";
-  if (style === "scalp" && quote.changePct > 5) return "buy";
-  if (style === "sniper" && quote.changePct > 8) return "buy";
+  if (style === "scalp" && ret > 4) return "buy";
+  if (style === "sniper" && ret > 6) return "buy";
   return "hold";
 }
 
@@ -748,7 +750,23 @@ export function mergeQuotes(
   for (const q of incoming) {
     const old = out[q.id];
     const spark = [...(old?.spark ?? []), q.price].slice(-48);
-    out[q.id] = { ...q, spark };
+    const base = spark.length >= 6 ? spark[spark.length - 6]! : spark[0]!;
+    const changePct = base > 0 ? ((q.price - base) / base) * 100 : q.changePct;
+    out[q.id] = { ...q, spark, changePct: Number.isFinite(changePct) ? changePct : q.changePct };
+  }
+  return out;
+}
+
+export function prunePumpQuotes(
+  quotes: Record<string, Quote>,
+  liveIncoming: Quote[],
+  held: Set<string>,
+): Record<string, Quote> {
+  const liveIds = new Set(liveIncoming.filter((q) => q.kind === "pump" && q.live).map((q) => q.id));
+  if (!liveIds.size) return quotes;
+  const out: Record<string, Quote> = {};
+  for (const q of Object.values(quotes)) {
+    if (q.kind !== "pump" || liveIds.has(q.id) || held.has(q.id)) out[q.id] = q;
   }
   return out;
 }

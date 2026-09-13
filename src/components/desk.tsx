@@ -80,6 +80,7 @@ export function Desk() {
   const equity = desk.equityNow;
   const dayPnl = equity - desk.dayStartEquity;
   const botsOn = desk.bots.filter((b) => b.enabled).length;
+  const pumpLive = Object.values(desk.quotes).filter((q) => q.kind === "pump" && q.live).length;
   const last = desk.lastFill;
   const holdings = Object.values(desk.positions);
 
@@ -129,6 +130,9 @@ export function Desk() {
               </div>
               <p className="text-xs text-muted">
                 {botsOn} bot{botsOn === 1 ? "" : "s"} on ·{" "}
+                {pumpLive > 0
+                  ? `${pumpLive} live Pump.fun coins · `
+                  : "Pump.fun board estimated · "}
                 {desk.stockMarketOpen ? "US stocks open" : "US stocks closed"} · last check{" "}
                 {ago(desk.loopAt)}
                 {last

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
 import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
@@ -77,7 +77,7 @@ function defaultBots(): Bot[] {
     {
       id: "bot-scan-pump",
       name: "Scan Pump.fun · sniper",
-      enabled: false,
+      enabled: true,
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
@@ -309,6 +309,10 @@ function fitBotsToBank(state: DeskState): DeskState {
       changed = true;
       return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };
     }
+    if (b.id === "bot-scan-pump" && !b.enabled && !b.lastTickAt) {
+      changed = true;
+      return { ...b, enabled: true, lastReason: "Scanning live Pump.fun coins (hottest + newest)." };
+    }
     if (!f && b.sizeUsd > 50) {
       changed = true;
       return { ...b, sizeUsd: 25 };
@@ -472,7 +476,11 @@ export async function tickOnce(): Promise<DeskSnapshot> {
     const snap = await fetchMarketSnapshot();
     s = {
       ...s,
-      quotes: mergeQuotes(s.quotes, snap.quotes),
+      quotes: prunePumpQuotes(
+        mergeQuotes(s.quotes, snap.quotes),
+        snap.quotes,
+        new Set(Object.keys(s.positions)),
+      ),
       liveQuotes: snap.live,
     };
     const stamp = todayStamp();
