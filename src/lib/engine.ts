@@ -195,8 +195,8 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The dip either bounced enough to cover fees, hit a 5% stop, or sat long enough to give up.",
     },
     momentum: {
-      buy: "Price jumped about 1.4% in the last few ticks, so the bot is riding strength.",
-      sell: "The bounce faded, or the position is up about 4%, so the bot is taking profit / cutting.",
+      buy: "Price is up on the day and still ticking higher, so the bot is riding strength.",
+      sell: "The bounce faded, or the position is up about 5%, so the bot is taking profit / cutting.",
     },
     dca: {
       buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
@@ -397,7 +397,7 @@ export function whyTrade(bot: Bot, quote: Quote, side: "buy" | "sell"): string {
 export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
   const spark = quote.spark;
   const last = quote.price;
-  if (spark.length < 8 || last <= 0) return "hold";
+  if (spark.length < 5 || last <= 0) return "hold";
 
   const fast = mean(spark.slice(-5));
   const slow = mean(spark.slice(-20));
@@ -429,7 +429,11 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
       if (heldMs > 3 * 60 * 60 * 1000 && z > 0) return "sell";
       return "hold";
     case "momentum":
-      if (ret8 > 2.2 && !pos) return "buy";
+      if (spark.length < 5) return "hold";
+      {
+        const popping = ret8 > 1.0 || (quote.changePct >= 1.2 && ret8 > 0);
+        if (!pos && popping) return "buy";
+      }
       if (!pos) return "hold";
       if (fromEntry <= -4) return "sell";
       if (heldMs < minHold) return "hold";
@@ -644,7 +648,7 @@ export function tickBots(state: DeskState): DeskState {
 
     bot.lastTickAt = Date.now();
     let acted = false;
-    let skipNote = "";
+    const feeSkips: string[] = [];
     const maxNames = Math.max(1, bot.maxNames || 4);
 
     // Mark peaks + sell names this bot still holds.
@@ -699,7 +703,7 @@ export function tickBots(state: DeskState): DeskState {
       const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
       if (size < 5) continue;
       if (feeWouldEat(quote.kind, quote.symbol, size)) {
-        skipNote = `Skipped ${quote.symbol}: network fees would eat a $${size.toFixed(0)} ticket.`;
+        feeSkips.push(quote.symbol);
         continue;
       }
       const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
@@ -726,14 +730,16 @@ export function tickBots(state: DeskState): DeskState {
     if (!acted) {
       const n = universe.length;
       const heldNow = ownedSymbols(next, bot.id);
+      const skipNote = feeSkips.length
+        ? ` Skipped ${feeSkips.join(", ")}: network fees too big for a $${bot.sizeUsd} ticket.`
+        : "";
       bot.lastSignal = "scanning";
       bot.lastReason =
-        skipNote ||
-        (bot.scope === "one"
-          ? `Watching ${next.quotes[bot.symbol]?.symbol ?? bot.symbol} — no buy or sell yet.`
-          : `Scanned ${n} name${n === 1 ? "" : "s"}. Holding ${heldNow.length}/${maxNames}. No new signal this pass.`);
+        bot.scope === "one"
+          ? `Watching ${next.quotes[bot.symbol]?.symbol ?? bot.symbol} — no buy or sell yet.${skipNote}`
+          : `Scanned ${n} name${n === 1 ? "" : "s"}. Holding ${heldNow.length}/${maxNames}. No new signal this pass.${skipNote}`;
       if (
-        !skipNote &&
+        !feeSkips.length &&
         universe.some((q) => q.kind === "stock") &&
         !rth &&
         bot.scope !== "crypto" &&

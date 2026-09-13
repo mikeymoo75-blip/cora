@@ -85,7 +85,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   momentum: {
     label: "Ride the move",
-    blurb: "Buys a quick jump. Sells if it fades or you're up about 4%.",
+    blurb: "Buys when a name is up on the day and still ticking higher. Holds 10 minutes. Skips BTC/ETH at this ticket size — gas would eat the trade.",
   },
   dca: {
     label: "Dip buyer",
