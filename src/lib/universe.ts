@@ -93,11 +93,11 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Pump.fun only. Buys heat near the highs. Trails a tight stop. Never buys a dump.",
+    blurb: "Pump.fun only. Buys heat near the highs, then checks the bag every 15s even after it leaves the hot board. Sells on dump, fade off the high, 25 minutes, or a dead price. Never averages down.",
   },
   scalp: {
     label: "Pump scalp",
-    blurb: "Pump.fun only. In on a pop, out at about +12% or a small drop. Does not sit through rugs.",
+    blurb: "Pump.fun only. In on a pop, watches every 15s, out at about +10%, a small drop, 12 minutes, or a dead tape.",
   },
   copy: {
     label: "Copy a person",

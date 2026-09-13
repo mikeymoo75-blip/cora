@@ -204,11 +204,11 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
     },
     sniper: {
       buy: "Pump.fun sniper: the coin is ripping and still near its highs. Tight stop — these can go to zero.",
-      sell: "Pump.fun sniper exit: it dumped off the peak, hit the hard stop, or the tape flipped. No averaging down.",
+      sell: "Pump.fun sniper exit: dumped off the peak, hit the hard stop, sat 25 minutes, or the price feed died. No averaging down.",
     },
     scalp: {
       buy: "Pump.fun scalp: a short pop. This bot wants a quick hit, not a hold.",
-      sell: "Pump.fun scalp exit: took about +12%, or a small drop hit. Out before a rug.",
+      sell: "Pump.fun scalp exit: took the pop, a small drop hit, 12 minutes passed, or the tape went dark. Out before a rug.",
     },
     copy: {
       buy: "The person this bot follows showed a public buy or a live long.",
@@ -346,6 +346,26 @@ export function pumpSignal(
 ): "buy" | "sell" | "hold" {
   const spark = quote.spark;
   const last = quote.price;
+
+  if (pos) {
+    if (!last || last <= 0) return "sell";
+    const heldMs = pos.openedAt ? Date.now() - pos.openedAt : 0;
+    const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
+    const fromEntry = pos.avg > 0 ? ((last - pos.avg) / pos.avg) * 100 : 0;
+    const stale = quote.seenAt ? Date.now() - quote.seenAt > 90_000 : false;
+    const maxHold = style === "scalp" ? 12 * 60 * 1000 : 25 * 60 * 1000;
+    if (stale) return "sell";
+    if (heldMs >= maxHold) return "sell";
+    if (style === "scalp") {
+      if (fromPeak <= -3.5 || fromEntry <= -6 || fromEntry >= 10) return "sell";
+      if (ticksFalling(spark, 2) && fromEntry < 2) return "sell";
+    } else {
+      if (fromPeak <= -6 || fromEntry <= -8 || fromEntry >= 22) return "sell";
+      if (ticksFalling(spark, 3) && fromEntry < 4) return "sell";
+    }
+    return "hold";
+  }
+
   if (spark.length < 2 || last <= 0) return "hold";
 
   const recent = spark.slice(style === "scalp" ? -4 : -6);
@@ -355,19 +375,6 @@ export function pumpSignal(
   const lookback = spark[spark.length - Math.min(spark.length, 6)] ?? last;
   const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : quote.changePct;
   const alreadyDumping = last < recentHigh * 0.9 || ret < -4;
-
-  if (pos) {
-    const fromPeak = ((last - pos.peak) / pos.peak) * 100;
-    const fromEntry = ((last - pos.avg) / pos.avg) * 100;
-    if (style === "scalp") {
-      if (fromPeak <= -4 || fromEntry <= -8 || fromEntry >= 12) return "sell";
-      if (ret < -8 || ticksFalling(spark, 3)) return "sell";
-    } else {
-      if (fromPeak <= -7 || fromEntry <= -12 || fromEntry >= 28) return "sell";
-      if (ret < -10 || ticksFalling(spark, 4)) return "sell";
-    }
-    return "hold";
-  }
 
   if (alreadyDumping || !rising || !nearHigh) return "hold";
   if (style === "scalp" && ret > 3.5) return "buy";
@@ -684,6 +691,23 @@ export function tickBots(state: DeskState): DeskState {
       bot.lastReason = reason;
       bot.lastSold = { ...(bot.lastSold || {}), [sym]: Date.now() };
       acted = true;
+    }
+
+    if (!acted) {
+      const heldPump = ownedSymbols(next, bot.id).filter((id) => next.positions[id]?.kind === "pump");
+      if (heldPump.length) {
+        const bits = heldPump.slice(0, 3).map((id) => {
+          const q = next.quotes[id];
+          const p = next.positions[id];
+          if (!q || !p) return id;
+          const fromEntry = p.avg > 0 ? ((q.price - p.avg) / p.avg) * 100 : 0;
+          const sign = fromEntry >= 0 ? "+" : "";
+          return `${q.symbol} ${sign}${fromEntry.toFixed(1)}%`;
+        });
+        bot.lastSignal = "watching";
+        bot.lastReason = `Watching ${bits.join(", ")} every 15s. Sells on dump, fade off the high, ${bot.strategy === "scalp" ? "12" : "25"} min, or a dead price feed.`;
+        acted = true;
+      }
     }
 
     // Buy new names that pass the rule.

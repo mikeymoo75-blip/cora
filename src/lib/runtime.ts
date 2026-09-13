@@ -4,7 +4,7 @@ import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
 import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
-import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
+import { fetchMarketSnapshot, refreshHeldPumps, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
 
@@ -490,11 +490,14 @@ export async function tickOnce(): Promise<DeskSnapshot> {
   let s = getState();
   try {
     const snap = await fetchMarketSnapshot();
-    const held = new Set(Object.keys(s.positions));
+    const heldIds = Object.keys(s.positions);
+    const held = new Set(heldIds);
+    const heldPump = await refreshHeldPumps(heldIds).catch(() => []);
+    const incoming = [...snap.quotes, ...heldPump];
     s = {
       ...s,
       quotes: pruneStaleQuotes(
-        prunePumpQuotes(mergeQuotes(s.quotes, snap.quotes), snap.quotes, held),
+        prunePumpQuotes(mergeQuotes(s.quotes, incoming), snap.quotes, held),
         snap.quotes,
         held,
         "crypto",

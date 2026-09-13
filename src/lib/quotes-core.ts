@@ -206,6 +206,64 @@ async function pumpQuotes(solUsd: number): Promise<Quote[]> {
   return PUMP_FALLBACK.map((s) => seedQuote(s));
 }
 
+/** Keep a live price on Pump.fun coins we already hold, even after they leave the hot board. */
+export async function refreshHeldPumps(heldIds: string[]): Promise<Quote[]> {
+  const mints = heldIds.filter((id) => id.startsWith("pump:")).map((id) => id.slice(5));
+  if (!mints.length) return [];
+  const out: Quote[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < mints.length; i += 20) {
+    const batch = mints.slice(i, i + 20);
+    try {
+      const json = (await fetchJson(
+        `https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`,
+        8000,
+      )) as { pairs?: DexPair[] };
+      for (const p of json.pairs || []) {
+        const mint = (p.baseToken?.address || "").trim();
+        if (!mint || seen.has(mint)) continue;
+        const price = Number(p.priceUsd);
+        if (!price || !Number.isFinite(price)) continue;
+        seen.add(mint);
+        const sym = (p.baseToken?.symbol || "MEME").toUpperCase().slice(0, 10);
+        out.push({
+          id: `pump:${mint}`,
+          symbol: sym,
+          name: p.baseToken?.name || sym,
+          kind: "pump",
+          price,
+          changePct: Number(p.priceChange?.m5 ?? p.priceChange?.h1 ?? 0),
+          volume: Number(p.volume?.h24 ?? 0),
+          spark: [price],
+          live: true,
+        });
+      }
+    } catch {
+      /* next batch */
+    }
+  }
+
+  for (const mint of mints) {
+    if (seen.has(mint)) continue;
+    try {
+      const json = (await fetchJson(
+        `https://frontend-api-v3.pump.fun/coins/${mint}`,
+        6000,
+        PUMP_HEADERS,
+      )) as PumpCoin;
+      const q = coinToQuote(json, 200, 0);
+      if (q) {
+        seen.add(mint);
+        out.push(q);
+      }
+    } catch {
+      /* leave last known quote */
+    }
+  }
+  return out;
+}
+
 const STABLES = new Set([
   "USDT",
   "USDC",
