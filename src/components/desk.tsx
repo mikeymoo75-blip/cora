@@ -29,7 +29,7 @@ import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 const TABS = ["Markets", "Bots", "Copy", "Log"] as const;
 type Tab = (typeof TABS)[number];
-const SIZES = [25, 50, 100, 250, 500];
+const SIZES = [10, 25, 50, 100];
 
 function kindLabel(k: MarketKind) {
   if (k === "stock") return "Stock";
@@ -42,7 +42,7 @@ export function Desk() {
   const desk = remote.desk;
   const [tab, setTab] = useState<Tab>("Markets");
   const [filter, setFilter] = useState<"all" | MarketKind>("all");
-  const [notional, setNotional] = useState(100);
+  const [notional, setNotional] = useState(25);
   const [selectedId, setSelectedId] = useState("NVDA");
   const [query, setQuery] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
@@ -717,7 +717,7 @@ function BotsPane({
   const [symbol, setSymbol] = useState("AAPL");
   const [strategy, setStrategy] = useState<StrategyId>("sma");
   const [scope, setScope] = useState<ScanScope>("stock");
-  const [size, setSize] = useState(100);
+  const [size, setSize] = useState(25);
   const stratBots = desk.bots.filter((b) => b.strategy !== "copy");
   const selectedQuote = quotes.find((q) => q.id === symbol) ?? quotes[0];
   const pumpStrats: StrategyId[] = ["sniper", "scalp"];

@@ -24,9 +24,9 @@ function defaultBots(): Bot[] {
       symbol: "SPY",
       kind: "stock",
       strategy: "sma",
-      sizeUsd: 150,
+      sizeUsd: 25,
       scope: "stock",
-      maxNames: 3,
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -38,9 +38,9 @@ function defaultBots(): Bot[] {
       symbol: "SPY",
       kind: "stock",
       strategy: "dca",
-      sizeUsd: 100,
+      sizeUsd: 20,
       scope: "stock",
-      maxNames: 3,
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -52,9 +52,9 @@ function defaultBots(): Bot[] {
       symbol: "BTC",
       kind: "crypto",
       strategy: "momentum",
-      sizeUsd: 150,
+      sizeUsd: 25,
       scope: "crypto",
-      maxNames: 3,
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -66,9 +66,9 @@ function defaultBots(): Bot[] {
       symbol: "ETH",
       kind: "crypto",
       strategy: "meanrev",
-      sizeUsd: 100,
+      sizeUsd: 20,
       scope: "crypto",
-      maxNames: 3,
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -80,9 +80,9 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
-      sizeUsd: 40,
+      sizeUsd: 10,
       scope: "pump",
-      maxNames: 2,
+      maxNames: 3,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -94,9 +94,9 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "scalp",
-      sizeUsd: 30,
+      sizeUsd: 10,
       scope: "pump",
-      maxNames: 2,
+      maxNames: 3,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -108,9 +108,9 @@ function defaultBots(): Bot[] {
       symbol: "SPY",
       kind: "stock",
       strategy: "momentum",
-      sizeUsd: 80,
+      sizeUsd: 20,
       scope: "all",
-      maxNames: 4,
+      maxNames: 5,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -122,10 +122,9 @@ function defaultBots(): Bot[] {
       symbol: l.tickers?.[0] || (l.kind === "crypto-top" ? "BTC" : "NVDA"),
       kind: (l.kind === "crypto-top" ? "crypto" : "stock") as MarketKind,
       strategy: "copy" as StrategyId,
-      sizeUsd:
-        l.kind === "public" ? 200 : l.kind === "star" ? 150 : l.kind === "crypto-top" ? 100 : 100,
+      sizeUsd: l.kind === "public" ? 40 : l.kind === "star" ? 30 : 25,
       scope: "one" as ScanScope,
-      maxNames: 3,
+      maxNames: 4,
       leaderId: l.id,
       lastSignal: "idle",
       lastTickAt: 0,
@@ -241,7 +240,7 @@ function load(): DeskState {
         bots: mapped.map((b) => {
           const fresh = sized.get(b.id);
           if (fresh) return { ...b, sizeUsd: fresh.sizeUsd, maxNames: fresh.maxNames };
-          return { ...b, sizeUsd: Math.min(b.sizeUsd, 150) };
+          return { ...b, sizeUsd: Math.min(b.sizeUsd, 25) };
         }),
         copyEvents: (parsed.copyEvents || []).map((e) => ({ ...e, consumed: false })),
         copyFetchedAt: parsed.copyFetchedAt || 0,
@@ -290,11 +289,40 @@ function g(): G {
   return globalThis as G;
 }
 
+function fitBotsToBank(state: DeskState): DeskState {
+  const fresh = new Map(defaultBots().map((b) => [b.id, b]));
+  let changed = false;
+  const bots = state.bots.map((b) => {
+    const f = fresh.get(b.id);
+    if (f && (b.sizeUsd > f.sizeUsd || b.maxNames > f.maxNames)) {
+      changed = true;
+      return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };
+    }
+    if (!f && b.sizeUsd > 50) {
+      changed = true;
+      return { ...b, sizeUsd: 25 };
+    }
+    return b;
+  });
+  return changed ? { ...state, bots } : state;
+}
+
 export function getState(): DeskState {
-  const cur = g().__coraDesk;
-  if (cur && cur.startingCash >= 10_000) g().__coraDesk = undefined;
-  g().__coraDesk ??= load();
-  return g().__coraDesk!;
+  let cur = g().__coraDesk;
+  if (cur && cur.startingCash >= 10_000) cur = undefined;
+  if (!cur) {
+    cur = fitBotsToBank(load());
+    g().__coraDesk = cur;
+    save(cur);
+    return cur;
+  }
+  const fitted = fitBotsToBank(cur);
+  if (fitted !== cur) {
+    g().__coraDesk = fitted;
+    save(fitted);
+    return fitted;
+  }
+  return cur;
 }
 
 function setState(next: DeskState) {
@@ -530,7 +558,7 @@ export function addBot(input: {
     symbol: q.id,
     kind: q.kind,
     strategy: input.strategy,
-    sizeUsd: Math.max(10, Math.min(input.sizeUsd || 100, STARTING)),
+    sizeUsd: Math.max(5, Math.min(input.sizeUsd || 25, 100)),
     scope,
     maxNames: input.maxNames || (scope === "one" ? 1 : 4),
     lastSignal: "idle",

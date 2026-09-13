@@ -442,7 +442,7 @@ export function tickBots(state: DeskState): DeskState {
         bot.symbol = quote.id;
         bot.kind = quote.kind;
         const eq = markToMarket(next);
-        const size = Math.min(bot.sizeUsd, eq * 0.25, next.cash);
+        const size = Math.min(bot.sizeUsd, eq * 0.08, next.cash);
         const notional = pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
         const delayBit = pending.delayDays ? ` — ${pending.delayDays} days after the real trade` : "";
         const reason =
@@ -531,8 +531,8 @@ export function tickBots(state: DeskState): DeskState {
       const sig = pickSignal(bot, quote, undefined);
       if (sig !== "buy") continue;
       const eq = markToMarket(next);
-      const size = Math.min(bot.sizeUsd, eq * 0.2, next.cash);
-      if (size < 10) break;
+      const size = Math.min(bot.sizeUsd, eq * 0.05, next.cash);
+      if (size < 5) break;
       const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
       next = applyFill(
         next,
