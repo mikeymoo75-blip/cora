@@ -7,6 +7,7 @@ import {
   removeBot,
   resetBook,
   resumeHalt,
+  saveReport,
   toggleBot,
 } from "./desk-api";
 import type { DeskSnapshot, ScanScope, StrategyId } from "./types";
@@ -64,5 +65,6 @@ export function useServerDesk() {
     addSymbol: (symbol: string) => run(() => addSymbol({ data: { symbol } })),
     reset: (name?: string) => run(() => resetBook({ data: { name } })),
     resume: () => run(() => resumeHalt()),
+    saveReport: () => run(() => saveReport()),
   };
 }

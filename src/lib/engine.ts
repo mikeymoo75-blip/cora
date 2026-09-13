@@ -10,7 +10,129 @@ import type {
   Position,
   Quote,
   StrategyId,
+  Wallet,
+  WalletId,
+  WalletView,
 } from "./types";
+
+export const CORE_START = 800;
+export const PUMP_START = 200;
+
+export function walletIdFor(kind: MarketKind): WalletId {
+  return kind === "pump" ? "pump" : "core";
+}
+
+export function blankWallets(): Record<WalletId, Wallet> {
+  return {
+    core: {
+      cash: CORE_START,
+      startingCash: CORE_START,
+      dayStartEquity: CORE_START,
+      halted: false,
+      haltReason: "",
+    },
+    pump: {
+      cash: PUMP_START,
+      startingCash: PUMP_START,
+      dayStartEquity: PUMP_START,
+      halted: false,
+      haltReason: "",
+    },
+  };
+}
+
+export function ensureWallets(state: DeskState): DeskState {
+  if (state.wallets?.core && state.wallets?.pump) {
+    const cash = state.wallets.core.cash + state.wallets.pump.cash;
+    let wallets = state.wallets;
+    for (const id of ["core", "pump"] as WalletId[]) {
+      const eq = walletEquity({ ...state, wallets }, id);
+      const w = wallets[id];
+      if (Math.abs(w.dayStartEquity - w.cash) < 1 && Math.abs(eq - w.cash) > 5) {
+        wallets = { ...wallets, [id]: { ...w, dayStartEquity: eq } };
+      }
+    }
+    return { ...state, cash, wallets, reports: state.reports || [] };
+  }
+  const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + PUMP_START;
+  const coreCash = Math.round(cash * 0.8 * 100) / 100;
+  const pumpCash = Math.round((cash - coreCash) * 100) / 100;
+  const wallets: Record<WalletId, Wallet> = {
+    core: {
+      cash: coreCash,
+      startingCash: CORE_START,
+      dayStartEquity: coreCash,
+      halted: false,
+      haltReason: "",
+    },
+    pump: {
+      cash: pumpCash,
+      startingCash: PUMP_START,
+      dayStartEquity: pumpCash,
+      halted: false,
+      haltReason: "",
+    },
+  };
+  const built = { ...state, wallets, cash, reports: state.reports || [] };
+  return {
+    ...built,
+    wallets: {
+      core: { ...wallets.core, dayStartEquity: walletEquity(built, "core") },
+      pump: { ...wallets.pump, dayStartEquity: walletEquity(built, "pump") },
+    },
+  };
+}
+
+export function walletEquity(state: DeskState, id: WalletId): number {
+  const cash = state.wallets?.[id]?.cash ?? 0;
+  let eq = cash;
+  for (const p of Object.values(state.positions || {})) {
+    if (walletIdFor(p.kind) !== id) continue;
+    const q = state.quotes[p.symbol];
+    if (!q) continue;
+    eq += p.qty * q.price;
+  }
+  return eq;
+}
+
+export function markToMarket(
+  state: Pick<DeskState, "cash" | "positions" | "quotes"> & Partial<Pick<DeskState, "wallets">>,
+): number {
+  const s = ensureWallets(state as DeskState);
+  return walletEquity(s, "core") + walletEquity(s, "pump");
+}
+
+export function walletViews(state: DeskState): WalletView[] {
+  const s = ensureWallets(state);
+  return (["core", "pump"] as WalletId[]).map((id) => {
+    const w = s.wallets[id];
+    const fills = s.fills.filter((f) => walletIdFor(f.kind) === id);
+    const realizedPnl = fills.reduce((n, f) => n + (f.realizedPnl || 0), 0);
+    const feesPaid = fills.reduce((n, f) => n + f.fee, 0);
+    let unrealizedPnl = 0;
+    for (const p of Object.values(s.positions)) {
+      if (walletIdFor(p.kind) !== id) continue;
+      const q = s.quotes[p.symbol];
+      if (!q) continue;
+      unrealizedPnl += (q.price - p.avg) * p.qty;
+    }
+    const equity = walletEquity(s, id);
+    return {
+      id,
+      label: id === "core" ? "Stocks + crypto" : "Pump.fun",
+      cash: w.cash,
+      equity,
+      startingCash: w.startingCash,
+      dayPnl: equity - w.dayStartEquity,
+      realizedPnl,
+      unrealizedPnl,
+      netPnl: realizedPnl + unrealizedPnl,
+      feesPaid,
+      halted: w.halted,
+      haltReason: w.haltReason,
+    };
+  });
+}
 
 function mean(xs: number[]): number {
   if (!xs.length) return 0;
@@ -21,16 +143,6 @@ function stdev(xs: number[]): number {
   if (xs.length < 2) return 0;
   const m = mean(xs);
   return Math.sqrt(mean(xs.map((x) => (x - m) ** 2)));
-}
-
-export function markToMarket(state: Pick<DeskState, "cash" | "positions" | "quotes">): number {
-  let eq = state.cash;
-  for (const p of Object.values(state.positions)) {
-    const q = state.quotes[p.symbol];
-    if (!q) continue;
-    eq += p.qty * q.price;
-  }
-  return eq;
 }
 
 export function deskStats(state: DeskState): DeskStats {
@@ -120,30 +232,33 @@ export function applyFill(
 ): DeskState {
   const quote = state.quotes[symbol];
   if (!quote || quote.price <= 0) return state;
+  const s0 = ensureWallets(state);
+  const wid = walletIdFor(kind);
+  const book = s0.wallets[wid];
 
   const slip = slipBps(kind) / 10_000;
   const px = side === "buy" ? quote.price * (1 + slip) : quote.price * (1 - slip);
   let qty = notional / px;
-  const pos = state.positions[symbol];
+  const pos = s0.positions[symbol];
 
   if (side === "sell") {
-    if (!pos || pos.qty <= 0) return state;
+    if (!pos || pos.qty <= 0) return s0;
     qty = Math.min(qty, pos.qty);
   } else {
-    const maxNotional = state.cash * 0.98;
+    const maxNotional = book.cash * 0.98;
     if (notional > maxNotional) qty = maxNotional / px;
-    if (qty * px < 1) return state;
+    if (qty * px < 1) return s0;
   }
 
   const gross = qty * px;
   const fees = calcFees(kind, side, quote.symbol, qty, gross);
 
-  if (side === "buy" && state.cash < gross + fees.total) return state;
+  if (side === "buy" && book.cash < gross + fees.total) return s0;
 
   let realizedPnl = 0;
-  const positions = { ...state.positions };
-  let cash = state.cash;
-  const manualLocks = { ...(state.manualLocks || {}) };
+  const positions = { ...s0.positions };
+  let cash = book.cash;
+  const manualLocks = { ...(s0.manualLocks || {}) };
 
   if (side === "buy") {
     cash -= gross + fees.total;
@@ -198,12 +313,18 @@ export function applyFill(
     note: fees.note,
   };
 
+  const wallets = {
+    ...s0.wallets,
+    [wid]: { ...book, cash },
+  };
+  const other: WalletId = wid === "core" ? "pump" : "core";
   return {
-    ...state,
-    cash,
+    ...s0,
+    cash: cash + wallets[other].cash,
+    wallets,
     positions,
     manualLocks,
-    fills: [fill, ...state.fills].slice(0, 400),
+    fills: [fill, ...s0.fills].slice(0, 400),
   };
 }
 
@@ -358,30 +479,38 @@ function botsMayBuy(state: DeskState, symbol: string, at = Date.now()): boolean 
 }
 
 export function tickBots(state: DeskState): DeskState {
-  if (state.halted) return state;
-
   const now = Date.now();
   const keptLocks: Record<string, number> = {};
   for (const [sym, until] of Object.entries(state.manualLocks || {})) {
     if (until > now) keptLocks[sym] = until;
   }
 
-  let next: DeskState = { ...state, manualLocks: keptLocks };
-  const equity = markToMarket(state);
-  const lossPct = ((equity - state.dayStartEquity) / state.dayStartEquity) * 100;
-  if (lossPct <= -state.maxDailyLossPct) {
-    return {
-      ...state,
-      halted: true,
-      haltReason: `Paused: the paper book is down ${lossPct.toFixed(1)}% today (8% daily brake).`,
-      bots: state.bots.map((b) => ({
-        ...b,
-        enabled: false,
-        lastSignal: "halted",
-        lastReason: "Daily loss brake hit. Turn bots back on after you resume.",
-      })),
-    };
+  let next: DeskState = ensureWallets({ ...state, manualLocks: keptLocks });
+
+  const wallets = { ...next.wallets };
+  for (const id of ["core", "pump"] as WalletId[]) {
+    const w = wallets[id];
+    if (w.halted) continue;
+    const eq = walletEquity(next, id);
+    const lossPct = ((eq - w.dayStartEquity) / Math.max(w.dayStartEquity, 1)) * 100;
+    if (lossPct <= -next.maxDailyLossPct) {
+      wallets[id] = {
+        ...w,
+        halted: true,
+        haltReason:
+          id === "pump"
+            ? `Pump.fun wallet paused: down ${lossPct.toFixed(1)}% today. Stocks + crypto keep running.`
+            : `Stocks + crypto wallet paused: down ${lossPct.toFixed(1)}% today. Pump.fun keeps running.`,
+      };
+    }
   }
+  next = {
+    ...next,
+    wallets,
+    cash: wallets.core.cash + wallets.pump.cash,
+    halted: wallets.core.halted || wallets.pump.halted,
+    haltReason: [wallets.core.haltReason, wallets.pump.haltReason].filter(Boolean).join(" "),
+  };
 
   const bots = next.bots.map((b) => ({ ...b }));
   const copyEvents = next.copyEvents.map((e) => ({ ...e }));
@@ -439,10 +568,15 @@ export function tickBots(state: DeskState): DeskState {
           pending.consumed = true;
           continue;
         }
+        if (pending.side === "buy" && next.wallets.core.halted) {
+          bot.lastSignal = "wallet paused";
+          bot.lastReason = next.wallets.core.haltReason;
+          break;
+        }
         bot.symbol = quote.id;
         bot.kind = quote.kind;
-        const eq = markToMarket(next);
-        const size = Math.min(bot.sizeUsd, eq * 0.08, next.cash);
+        const eq = walletEquity(next, "core");
+        const size = Math.min(bot.sizeUsd, eq * 0.08, next.wallets.core.cash);
         const notional = pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
         const delayBit = pending.delayDays ? ` — ${pending.delayDays} days after the real trade` : "";
         const reason =
@@ -528,11 +662,13 @@ export function tickBots(state: DeskState): DeskState {
       if (next.positions[quote.id]) continue;
       if (!botsMayBuy(next, quote.id)) continue;
       if (quote.kind === "stock" && !rth) continue;
+      const wid = walletIdFor(quote.kind);
+      if (next.wallets[wid].halted) continue;
       const sig = pickSignal(bot, quote, undefined);
       if (sig !== "buy") continue;
-      const eq = markToMarket(next);
-      const size = Math.min(bot.sizeUsd, eq * 0.05, next.cash);
-      if (size < 5) break;
+      const eq = walletEquity(next, wid);
+      const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
+      if (size < 5) continue;
       const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
       next = applyFill(
         next,

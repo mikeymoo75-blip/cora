@@ -73,3 +73,10 @@ export const resumeHalt = createServerFn({ method: "POST" }).handler(
     return m.resumeHalt();
   },
 );
+
+export const saveReport = createServerFn({ method: "POST" }).handler(
+  async (): Promise<DeskSnapshot> => {
+    const m = await rt();
+    return m.saveReport();
+  },
+);

@@ -80,6 +80,37 @@ export type CopyEvent = {
 
 export type EquityPoint = { t: number; v: number };
 
+export type WalletId = "core" | "pump";
+
+export type Wallet = {
+  cash: number;
+  startingCash: number;
+  dayStartEquity: number;
+  halted: boolean;
+  haltReason: string;
+};
+
+export type WalletView = {
+  id: WalletId;
+  label: string;
+  cash: number;
+  equity: number;
+  startingCash: number;
+  dayPnl: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  netPnl: number;
+  feesPaid: number;
+  halted: boolean;
+  haltReason: string;
+};
+
+export type DeskReport = {
+  id: string;
+  ts: number;
+  text: string;
+};
+
 export type DeskStats = {
   realizedPnl: number;
   unrealizedPnl: number;
@@ -137,6 +168,8 @@ export type DeskState = {
   runStartedAt: number;
   /** Unix ms until which bots must not re-buy this symbol after a manual close. */
   manualLocks: Record<string, number>;
+  wallets: Record<WalletId, Wallet>;
+  reports: DeskReport[];
 };
 
 export type DeskSnapshot = DeskState & {
@@ -145,4 +178,5 @@ export type DeskSnapshot = DeskState & {
   scores: BotScore[];
   lastFill: Fill | null;
   stockMarketOpen: boolean;
+  walletViews: WalletView[];
 };

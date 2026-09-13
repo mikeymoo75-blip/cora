@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
-import { applyFill, botScores, deskStats, markToMarket, mergeQuotes, stockMarketOpen, tickBots, todayStamp } from "./engine";
+import { buildReport } from "./report";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
 import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
@@ -162,6 +163,8 @@ function blank(): DeskState {
     tests: [],
     runStartedAt: Date.now(),
     manualLocks: {},
+    wallets: blankWallets(),
+    reports: [],
   };
 }
 
@@ -234,7 +237,7 @@ function load(): DeskState {
         });
       }
       const sized = new Map(base.bots.map((b) => [b.id, b]));
-      return {
+      return ensureWallets({
         ...base,
         quotes: mergedQuotes,
         bots: mapped.map((b) => {
@@ -247,10 +250,10 @@ function load(): DeskState {
         tests: tests.slice(0, 40),
         selectedId: parsed.selectedId || "NVDA",
         liveQuotes: parsed.liveQuotes || false,
-      };
+      });
     }
 
-    return {
+    return ensureWallets({
       ...base,
       ...parsed,
       quotes: mergedQuotes,
@@ -260,7 +263,8 @@ function load(): DeskState {
       runStartedAt: parsed.runStartedAt || Date.now(),
       manualLocks: parsed.manualLocks || {},
       fills,
-    };
+      reports: parsed.reports || [],
+    });
   } catch {
     return blank();
   }
@@ -311,17 +315,19 @@ export function getState(): DeskState {
   let cur = g().__coraDesk;
   if (cur && cur.startingCash >= 10_000) cur = undefined;
   if (!cur) {
-    cur = fitBotsToBank(load());
+    cur = ensureWallets(fitBotsToBank(load()));
     g().__coraDesk = cur;
     save(cur);
     return cur;
   }
+  cur = ensureWallets(cur);
   const fitted = fitBotsToBank(cur);
   if (fitted !== cur) {
     g().__coraDesk = fitted;
     save(fitted);
     return fitted;
   }
+  g().__coraDesk = cur;
   return cur;
 }
 
@@ -331,7 +337,7 @@ function setState(next: DeskState) {
 }
 
 export function snapshot(): DeskSnapshot {
-  const s = getState();
+  const s = ensureWallets(getState());
   return {
     ...s,
     stats: deskStats(s),
@@ -339,6 +345,7 @@ export function snapshot(): DeskSnapshot {
     scores: botScores(s),
     lastFill: s.fills[0] ?? null,
     stockMarketOpen: stockMarketOpen(),
+    walletViews: walletViews(s),
   };
 }
 
@@ -463,12 +470,27 @@ export async function tickOnce(): Promise<DeskSnapshot> {
     };
     const stamp = todayStamp();
     if (stamp !== s.dayStamp) {
+      const e = ensureWallets(s);
       s = {
-        ...s,
+        ...e,
         dayStamp: stamp,
-        dayStartEquity: markToMarket(s),
+        dayStartEquity: markToMarket(e),
         halted: false,
         haltReason: "",
+        wallets: {
+          core: {
+            ...e.wallets.core,
+            dayStartEquity: walletEquity(e, "core"),
+            halted: false,
+            haltReason: "",
+          },
+          pump: {
+            ...e.wallets.pump,
+            dayStartEquity: walletEquity(e, "pump"),
+            halted: false,
+            haltReason: "",
+          },
+        },
       };
     }
     setState(s);
@@ -642,7 +664,23 @@ export async function addSymbol(raw: string) {
 }
 
 export function resumeHalt() {
-  setState({ ...getState(), halted: false, haltReason: "" });
+  const s = ensureWallets(getState());
+  setState({
+    ...s,
+    halted: false,
+    haltReason: "",
+    wallets: {
+      core: { ...s.wallets.core, halted: false, haltReason: "" },
+      pump: { ...s.wallets.pump, halted: false, haltReason: "" },
+    },
+  });
+  return snapshot();
+}
+
+export function saveReport() {
+  const s = ensureWallets(getState());
+  const report = buildReport(s);
+  setState({ ...s, reports: [report, ...(s.reports || [])].slice(0, 20) });
   return snapshot();
 }
 

@@ -11,6 +11,8 @@ import {
   Activity,
   Bot,
   CircleAlert,
+  ClipboardCopy,
+  FileText,
   Plus,
   RotateCcw,
   Search,
@@ -24,7 +26,18 @@ import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, money, pct, qtyFmt } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
-import type { BotScore, DeskSnapshot, Fill, MarketKind, Position, Quote, ScanScope, StrategyId } from "@/lib/types";
+import type {
+  BotScore,
+  DeskReport,
+  DeskSnapshot,
+  Fill,
+  MarketKind,
+  Position,
+  Quote,
+  ScanScope,
+  StrategyId,
+  WalletView,
+} from "@/lib/types";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 const TABS = ["Markets", "Bots", "Copy", "Log"] as const;
@@ -111,7 +124,7 @@ export function Desk() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-semibold leading-tight">Cora Desktop</h1>
                 <span className="rounded-sm bg-elevated px-2 py-0.5 font-mono text-xs text-warn">
-                  Paper · $1,000 bank
+                  Paper · Core $800 · Pump $200
                 </span>
               </div>
               <p className="text-xs text-muted">
@@ -125,19 +138,15 @@ export function Desk() {
             </div>
           </div>
           <div className="flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto font-mono text-xs">
-            <Pill label="Value" value={compactMoney(equity)} tone={desk.stats.netPnl >= 0 ? "up" : "down"} />
+            {(desk.walletViews || []).map((w) => (
+              <WalletPill key={w.id} wallet={w} />
+            ))}
+            <Pill label="Total" value={compactMoney(equity)} tone={desk.stats.netPnl >= 0 ? "up" : "down"} />
             <Pill
               label="Today"
               value={pct((dayPnl / Math.max(desk.dayStartEquity, 1)) * 100)}
               tone={dayPnl >= 0 ? "up" : "down"}
             />
-            <Pill
-              label="Cashed in"
-              value={compactMoney(desk.stats.realizedPnl)}
-              tone={desk.stats.realizedPnl >= 0 ? "up" : "down"}
-            />
-            <Pill label="Fees" value={compactMoney(desk.stats.feesPaid)} />
-            <Pill label="Cash" value={compactMoney(desk.cash)} />
           </div>
         </div>
 
@@ -145,7 +154,7 @@ export function Desk() {
           <div className="mt-3 rounded-lg bg-elevated p-3 shadow-[var(--shadow-border)]">
             <p className="text-sm font-medium">Start a new $1,000 test</p>
             <p className="mt-1 text-xs text-muted">
-              Saves this run, then gives you a fresh $1,000 bank. Bots stay as they are.
+              $800 stocks + crypto, $200 Pump.fun. Saves this run. Bots stay as they are.
             </p>
             <input
               value={resetName}
@@ -186,14 +195,35 @@ export function Desk() {
               <RotateCcw className="size-3.5" />
               New $1,000 test
             </button>
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-elevated px-3 text-sm"
+              onClick={() => {
+                void remote.saveReport().then(async (next) => {
+                  const text = next?.reports?.[0]?.text;
+                  if (text) {
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      toast("Report saved and copied — paste it in chat to have Grok tweak the bots");
+                    } catch {
+                      toast("Report saved in Log — copy it from there");
+                    }
+                    setTab("Log");
+                  } else toast("Could not build a report");
+                });
+              }}
+            >
+              <FileText className="size-3.5" />
+              Save report
+            </button>
           </div>
         )}
 
-        {(desk.halted || remote.err) && (
+        {(desk.halted || desk.walletViews?.some((w) => w.halted) || remote.err) && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-warn">
             <CircleAlert className="size-3.5" />
-            {desk.halted ? desk.haltReason : remote.err}
-            {desk.halted && (
+            {desk.haltReason || desk.walletViews?.find((w) => w.halted)?.haltReason || remote.err}
+            {(desk.halted || desk.walletViews?.some((w) => w.halted)) && (
               <button
                 type="button"
                 className="rounded-sm bg-elevated px-2 py-1 text-fg"
@@ -286,6 +316,7 @@ export function Desk() {
               equity={desk.equity}
               stats={desk.stats}
               marketOpen={desk.stockMarketOpen}
+              wallet={desk.walletViews?.find((w) => (selected.kind === "pump" ? w.id === "pump" : w.id === "core"))}
             />
           )}
         </div>
@@ -309,8 +340,37 @@ export function Desk() {
       )}
 
       {tab === "Log" && (
-        <LogPane desk={desk} onSelect={setSelectedId} onSellAll={sellAll} onOpenMarkets={() => setTab("Markets")} />
+        <LogPane
+          desk={desk}
+          onSelect={setSelectedId}
+          onSellAll={sellAll}
+          onOpenMarkets={() => setTab("Markets")}
+          onCopyReport={(text) => {
+            void navigator.clipboard.writeText(text).then(
+              () => toast("Report copied — paste it in chat for tweaks"),
+              () => toast("Could not copy — select the text instead"),
+            );
+          }}
+        />
       )}
+    </div>
+  );
+}
+
+function WalletPill({ wallet }: { wallet: WalletView }) {
+  const tone = wallet.netPnl >= 0 ? "up" : "down";
+  return (
+    <div className="min-w-[9.5rem] rounded-md bg-elevated px-2.5 py-1.5 shadow-[var(--shadow-border)]">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-muted">{wallet.id === "core" ? "Core" : "Pump"}</span>
+        <span className="tabular-nums">{compactMoney(wallet.equity)}</span>
+      </div>
+      <div className="mt-0.5 flex items-baseline justify-between gap-2">
+        <span className="text-muted">cash {compactMoney(wallet.cash)}</span>
+        <span className={cn("tabular-nums", tone === "up" ? "text-primary" : "text-down")}>
+          {money(wallet.netPnl)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -534,6 +594,7 @@ function ChartAndTicket({
   equity,
   stats,
   marketOpen,
+  wallet,
 }: {
   quote: Quote;
   notional: number;
@@ -544,6 +605,7 @@ function ChartAndTicket({
   equity: { t: number; v: number }[];
   stats: DeskSnapshot["stats"];
   marketOpen: boolean;
+  wallet?: WalletView;
 }) {
   const up = quote.changePct >= 0;
   const chartData = quote.spark.map((v, i) => ({ i, v }));
@@ -605,7 +667,10 @@ function ChartAndTicket({
 
       <div className="grid gap-3 rounded-lg bg-surface p-4 shadow-[var(--shadow-border)]">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-          <span>You trade this yourself · bots keep running in the background</span>
+          <span>
+            Pays from the {quote.kind === "pump" ? "Pump.fun" : "stocks + crypto"} wallet
+            {wallet ? ` · cash ${money(wallet.cash)}` : ""}
+          </span>
           {position && (
             <span className="font-mono text-fg">
               You own {qtyFmt(position.qty)} @ {money(position.avg)}{" "}
@@ -613,6 +678,7 @@ function ChartAndTicket({
             </span>
           )}
         </div>
+        {wallet?.halted && <p className="text-xs text-warn">{wallet.haltReason}</p>}
         {lockUntil > Date.now() && (
           <p className="text-xs text-warn">
             You sold this. Bots skip {quote.symbol} until{" "}
@@ -972,15 +1038,43 @@ function LogPane({
   onSelect,
   onSellAll,
   onOpenMarkets,
+  onCopyReport,
 }: {
   desk: DeskSnapshot;
   onSelect: (id: string) => void;
   onSellAll: (id: string) => void;
   onOpenMarkets: () => void;
+  onCopyReport: (text: string) => void;
 }) {
   return (
     <div className="grid gap-4 p-4 md:grid-cols-2">
       <div>
+        <h2 className="mb-2 text-sm font-semibold">Reports for Grok</h2>
+        {(!desk.reports || desk.reports.length === 0) && (
+          <p className="text-xs text-muted">
+            Tap Save report. It copies a log you can paste in chat so Grok can tweak the bots.
+          </p>
+        )}
+        <ul className="mb-4 space-y-2">
+          {(desk.reports || []).map((r: DeskReport) => (
+            <li key={r.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted">{clock(r.ts)}</p>
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-elevated px-3 text-xs"
+                  onClick={() => onCopyReport(r.text)}
+                >
+                  <ClipboardCopy className="size-3.5" />
+                  Copy
+                </button>
+              </div>
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted">
+                {r.text}
+              </pre>
+            </li>
+          ))}
+        </ul>
         <h2 className="mb-2 text-sm font-semibold">Saved tests</h2>
         {(!desk.tests || desk.tests.length === 0) && (
           <p className="text-xs text-muted">
