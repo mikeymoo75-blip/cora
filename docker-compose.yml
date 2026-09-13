@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DOCKER: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "8080"
+      TZ: America/New_York
+    ports:
+      # Bound to loopback so only the reverse proxy / tunnel can reach it.
+      # Basketball gym already uses 43147.
+      - "127.0.0.1:43148:8080"

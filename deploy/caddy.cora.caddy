@@ -1,0 +1,10 @@
+# Drop this into the Caddyfile that already serves datosfarm.com.
+# It reverse-proxies /cora to the Apex Desk container without touching basketball.
+
+www.datosfarm.com, datosfarm.com {
+	# existing gym / other sites stay as they are
+
+	handle_path /cora* {
+		reverse_proxy 127.0.0.1:43148
+	}
+}
