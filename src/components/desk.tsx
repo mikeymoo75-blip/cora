@@ -29,7 +29,7 @@ import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 const TABS = ["Markets", "Bots", "Copy", "Log"] as const;
 type Tab = (typeof TABS)[number];
-const SIZES = [100, 500, 1000, 5000, 10000];
+const SIZES = [25, 50, 100, 250, 500];
 
 function kindLabel(k: MarketKind) {
   if (k === "stock") return "Stock";
@@ -42,7 +42,7 @@ export function Desk() {
   const desk = remote.desk;
   const [tab, setTab] = useState<Tab>("Markets");
   const [filter, setFilter] = useState<"all" | MarketKind>("all");
-  const [notional, setNotional] = useState(1000);
+  const [notional, setNotional] = useState(100);
   const [selectedId, setSelectedId] = useState("NVDA");
   const [query, setQuery] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
@@ -111,7 +111,7 @@ export function Desk() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-semibold leading-tight">Cora Desktop</h1>
                 <span className="rounded-sm bg-elevated px-2 py-0.5 font-mono text-xs text-warn">
-                  Paper money
+                  Paper · $1,000 bank
                 </span>
               </div>
               <p className="text-xs text-muted">
@@ -143,9 +143,9 @@ export function Desk() {
 
         {resetOpen ? (
           <div className="mt-3 rounded-lg bg-elevated p-3 shadow-[var(--shadow-border)]">
-            <p className="text-sm font-medium">Start a new $100,000 test</p>
+            <p className="text-sm font-medium">Start a new $1,000 test</p>
             <p className="mt-1 text-xs text-muted">
-              Saves this run, clears cash, trades, and P/L. Bots stay as they are.
+              Saves this run, then gives you a fresh $1,000 bank. Bots stay as they are.
             </p>
             <input
               value={resetName}
@@ -159,7 +159,7 @@ export function Desk() {
                 className="min-h-11 flex-1 rounded-md bg-primary font-medium text-bg"
                 onClick={() => {
                   void remote.reset(resetName).then(() => {
-                    toast("New test started — bots kept");
+                    toast("New $1,000 test started — bots kept");
                     setResetOpen(false);
                     setResetName("");
                   });
@@ -184,7 +184,7 @@ export function Desk() {
               onClick={() => setResetOpen(true)}
             >
               <RotateCcw className="size-3.5" />
-              New $100k test
+              New $1,000 test
             </button>
           </div>
         )}
@@ -639,7 +639,7 @@ function ChartAndTicket({
         <input
           type="number"
           min={10}
-          step={100}
+          step={25}
           value={notional}
           onChange={(e) => setNotional(Number(e.target.value) || 0)}
           className="min-h-11 w-full rounded-md bg-elevated px-3 font-mono text-sm text-fg outline-none"
@@ -717,7 +717,7 @@ function BotsPane({
   const [symbol, setSymbol] = useState("AAPL");
   const [strategy, setStrategy] = useState<StrategyId>("sma");
   const [scope, setScope] = useState<ScanScope>("stock");
-  const [size, setSize] = useState(2000);
+  const [size, setSize] = useState(100);
   const stratBots = desk.bots.filter((b) => b.strategy !== "copy");
   const selectedQuote = quotes.find((q) => q.id === symbol) ?? quotes[0];
   const pumpStrats: StrategyId[] = ["sniper", "scalp"];
@@ -842,7 +842,7 @@ function BotsPane({
         <p className="text-xs leading-relaxed text-muted">{STRATEGY_COPY[activeStrategy]?.blurb}</p>
         <input
           type="number"
-          min={50}
+          min={10}
           value={size}
           onChange={(e) => setSize(Number(e.target.value) || 0)}
           className="min-h-11 w-full rounded-md bg-elevated px-3 font-mono text-sm outline-none"
@@ -984,7 +984,7 @@ function LogPane({
         <h2 className="mb-2 text-sm font-semibold">Saved tests</h2>
         {(!desk.tests || desk.tests.length === 0) && (
           <p className="text-xs text-muted">
-            After a run, tap New $100k test to save it here and compare what worked.
+            After a run, tap New $1,000 test to save it here and compare what worked.
           </p>
         )}
         <ul className="space-y-2">

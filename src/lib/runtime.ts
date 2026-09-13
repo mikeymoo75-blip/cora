@@ -7,7 +7,7 @@ import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
 
-const STARTING = 100_000;
+const STARTING = 1_000;
 const TICK_MS = 15_000;
 
 function dataFile(): string {
@@ -24,9 +24,9 @@ function defaultBots(): Bot[] {
       symbol: "SPY",
       kind: "stock",
       strategy: "sma",
-      sizeUsd: 4000,
+      sizeUsd: 150,
       scope: "stock",
-      maxNames: 5,
+      maxNames: 3,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -38,9 +38,9 @@ function defaultBots(): Bot[] {
       symbol: "SPY",
       kind: "stock",
       strategy: "dca",
-      sizeUsd: 3000,
+      sizeUsd: 100,
       scope: "stock",
-      maxNames: 5,
+      maxNames: 3,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -52,9 +52,9 @@ function defaultBots(): Bot[] {
       symbol: "BTC",
       kind: "crypto",
       strategy: "momentum",
-      sizeUsd: 3500,
+      sizeUsd: 150,
       scope: "crypto",
-      maxNames: 4,
+      maxNames: 3,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -66,9 +66,9 @@ function defaultBots(): Bot[] {
       symbol: "ETH",
       kind: "crypto",
       strategy: "meanrev",
-      sizeUsd: 2500,
+      sizeUsd: 100,
       scope: "crypto",
-      maxNames: 4,
+      maxNames: 3,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -80,9 +80,9 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
-      sizeUsd: 500,
+      sizeUsd: 40,
       scope: "pump",
-      maxNames: 3,
+      maxNames: 2,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -94,9 +94,9 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "scalp",
-      sizeUsd: 400,
+      sizeUsd: 30,
       scope: "pump",
-      maxNames: 3,
+      maxNames: 2,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -108,9 +108,9 @@ function defaultBots(): Bot[] {
       symbol: "SPY",
       kind: "stock",
       strategy: "momentum",
-      sizeUsd: 2000,
+      sizeUsd: 80,
       scope: "all",
-      maxNames: 6,
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -123,9 +123,9 @@ function defaultBots(): Bot[] {
       kind: (l.kind === "crypto-top" ? "crypto" : "stock") as MarketKind,
       strategy: "copy" as StrategyId,
       sizeUsd:
-        l.kind === "public" ? 8000 : l.kind === "star" ? 6000 : l.kind === "crypto-top" ? 2500 : 4000,
+        l.kind === "public" ? 200 : l.kind === "star" ? 150 : l.kind === "crypto-top" ? 100 : 100,
       scope: "one" as ScanScope,
-      maxNames: 8,
+      maxNames: 3,
       leaderId: l.id,
       lastSignal: "idle",
       lastTickAt: 0,
@@ -192,25 +192,75 @@ function load(): DeskState {
     for (const b of base.bots) {
       if (!haveIds.has(b.id)) bots.push(b);
     }
+    const mapped: Bot[] = bots.map((b) => ({
+      ...b,
+      lastReason: b.lastReason || "",
+      scope: b.scope || "one",
+      maxNames: b.maxNames || (b.scope && b.scope !== "one" ? 4 : 1),
+      kind: b.leaderId?.startsWith("hl-") ? "crypto" : b.kind,
+    }));
+    const mergedQuotes = { ...base.quotes, ...(parsed.quotes || {}) };
+    const fills = (parsed.fills || []).map((f) => ({
+      ...f,
+      reason: f.reason || f.note || "",
+    }));
+
+    // Old $100k paper book → $1,000 bank, sized like real money.
+    if ((parsed.startingCash ?? 0) >= 10_000) {
+      const prior: DeskState = {
+        ...base,
+        ...parsed,
+        quotes: mergedQuotes,
+        bots: mapped,
+        fills,
+        copyEvents: parsed.copyEvents || [],
+        tests: parsed.tests || [],
+        runStartedAt: parsed.runStartedAt || Date.now(),
+        manualLocks: parsed.manualLocks || {},
+      };
+      const tests = [...(prior.tests || [])];
+      if (prior.fills.length > 0) {
+        const stats = deskStats(prior);
+        tests.unshift({
+          id: `run-bank-${Date.now()}`,
+          name: "Old $100k book",
+          startedAt: prior.runStartedAt || Date.now(),
+          endedAt: Date.now(),
+          startingCash: prior.startingCash,
+          endingEquity: markToMarket(prior),
+          realizedPnl: stats.realizedPnl,
+          feesPaid: stats.feesPaid,
+          netPnl: stats.netPnl,
+          trades: prior.fills.length,
+        });
+      }
+      const sized = new Map(base.bots.map((b) => [b.id, b]));
+      return {
+        ...base,
+        quotes: mergedQuotes,
+        bots: mapped.map((b) => {
+          const fresh = sized.get(b.id);
+          if (fresh) return { ...b, sizeUsd: fresh.sizeUsd, maxNames: fresh.maxNames };
+          return { ...b, sizeUsd: Math.min(b.sizeUsd, 150) };
+        }),
+        copyEvents: (parsed.copyEvents || []).map((e) => ({ ...e, consumed: false })),
+        copyFetchedAt: parsed.copyFetchedAt || 0,
+        tests: tests.slice(0, 40),
+        selectedId: parsed.selectedId || "NVDA",
+        liveQuotes: parsed.liveQuotes || false,
+      };
+    }
+
     return {
       ...base,
       ...parsed,
-      quotes: { ...base.quotes, ...(parsed.quotes || {}) },
-      bots: bots.map((b) => ({
-        ...b,
-        lastReason: b.lastReason || "",
-        scope: b.scope || "one",
-        maxNames: b.maxNames || (b.scope && b.scope !== "one" ? 4 : 1),
-        kind: b.leaderId?.startsWith("hl-") ? "crypto" : b.kind,
-      })),
+      quotes: mergedQuotes,
+      bots: mapped,
       copyEvents: parsed.copyEvents || [],
       tests: parsed.tests || [],
       runStartedAt: parsed.runStartedAt || Date.now(),
       manualLocks: parsed.manualLocks || {},
-      fills: (parsed.fills || []).map((f) => ({
-        ...f,
-        reason: f.reason || f.note || "",
-      })),
+      fills,
     };
   } catch {
     return blank();
@@ -241,6 +291,8 @@ function g(): G {
 }
 
 export function getState(): DeskState {
+  const cur = g().__coraDesk;
+  if (cur && cur.startingCash >= 10_000) g().__coraDesk = undefined;
   g().__coraDesk ??= load();
   return g().__coraDesk!;
 }
@@ -478,7 +530,7 @@ export function addBot(input: {
     symbol: q.id,
     kind: q.kind,
     strategy: input.strategy,
-    sizeUsd: input.sizeUsd,
+    sizeUsd: Math.max(10, Math.min(input.sizeUsd || 100, STARTING)),
     scope,
     maxNames: input.maxNames || (scope === "one" ? 1 : 4),
     lastSignal: "idle",
@@ -499,7 +551,7 @@ export function setBotSize(id: string, sizeUsd: number) {
   const s = getState();
   setState({
     ...s,
-    bots: s.bots.map((b) => (b.id === id ? { ...b, sizeUsd } : b)),
+    bots: s.bots.map((b) => (b.id === id ? { ...b, sizeUsd: Math.max(10, sizeUsd) } : b)),
   });
   return snapshot();
 }
