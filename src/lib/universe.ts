@@ -18,7 +18,10 @@ export const STOCKS: Seed[] = [
   { id: "META", symbol: "META", name: "Meta", kind: "stock", yahoo: "META", seed: 572 },
   { id: "GOOGL", symbol: "GOOGL", name: "Alphabet", kind: "stock", yahoo: "GOOGL", seed: 176 },
   { id: "AMD", symbol: "AMD", name: "AMD", kind: "stock", yahoo: "AMD", seed: 158 },
-  { id: "PLTR", symbol: "PLTR", name: "Palantir", kind: "stock", yahoo: "PLTR", seed: 38 },
+  { id: "AXP", symbol: "AXP", name: "American Express", kind: "stock", yahoo: "AXP", seed: 268 },
+  { id: "KO", symbol: "KO", name: "Coca-Cola", kind: "stock", yahoo: "KO", seed: 68 },
+  { id: "BAC", symbol: "BAC", name: "Bank of America", kind: "stock", yahoo: "BAC", seed: 42 },
+  { id: "CMG", symbol: "CMG", name: "Chipotle", kind: "stock", yahoo: "CMG", seed: 58 },
   { id: "COIN", symbol: "COIN", name: "Coinbase", kind: "stock", yahoo: "COIN", seed: 248 },
   { id: "MSTR", symbol: "MSTR", name: "MicroStrategy", kind: "stock", yahoo: "MSTR", seed: 318 },
   { id: "HOOD", symbol: "HOOD", name: "Robinhood", kind: "stock", yahoo: "HOOD", seed: 24 },
@@ -36,6 +39,8 @@ export const CRYPTO: Seed[] = [
   { id: "AVAX", symbol: "AVAX", name: "Avalanche", kind: "crypto", yahoo: "AVAX-USD", seed: 36 },
   { id: "LINK", symbol: "LINK", name: "Chainlink", kind: "crypto", yahoo: "LINK-USD", seed: 22 },
   { id: "PEPE", symbol: "PEPE", name: "Pepe", kind: "crypto", yahoo: "PEPE-USD", seed: 0.000009 },
+  { id: "SUI", symbol: "SUI", name: "Sui", kind: "crypto", yahoo: "SUI-USD", seed: 3.4 },
+  { id: "HYPE", symbol: "HYPE", name: "Hyperliquid", kind: "crypto", yahoo: "HYPE-USD", seed: 42 },
 ];
 
 export const PUMP_FALLBACK: Seed[] = [
@@ -96,7 +101,8 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   copy: {
     label: "Copy a person",
-    blurb: "Mirrors public STOCK Act filings or a known public holding. Often weeks late.",
+    blurb:
+      "Mirrors a star investor’s public book, a Hyperliquid whale’s longs, or STOCK Act filings. Stocks are delayed. Crypto is paper longs only — not Pump.fun.",
   },
 };
 

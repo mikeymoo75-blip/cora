@@ -1,4 +1,4 @@
-export type LeaderKind = "congress" | "spouse" | "public";
+export type LeaderKind = "congress" | "spouse" | "public" | "star" | "crypto-top";
 
 export type CopyLeader = {
   id: string;
@@ -6,12 +6,62 @@ export type CopyLeader = {
   role: string;
   kind: LeaderKind;
   needles: string[];
-  /** Public-figure bots that don't file STOCK Act — hold these names. */
   tickers?: string[];
   blurb: string;
 };
 
 export const COPY_LEADERS: CopyLeader[] = [
+  {
+    id: "buffett",
+    name: "Warren Buffett",
+    role: "Berkshire",
+    kind: "star",
+    needles: [],
+    tickers: ["AAPL", "AXP", "KO", "BAC"],
+    blurb: "Berkshire’s widely reported core book. 13F is quarterly and weeks late — not his live clicks.",
+  },
+  {
+    id: "cathie",
+    name: "Cathie Wood",
+    role: "ARKK",
+    kind: "star",
+    needles: [],
+    tickers: ["TSLA", "COIN", "HOOD"],
+    blurb: "Copies ARKK’s public holdings file (the ETF, not her personal account). Updates when ARK publishes.",
+  },
+  {
+    id: "ackman",
+    name: "Bill Ackman",
+    role: "Pershing Square",
+    kind: "star",
+    needles: [],
+    tickers: ["GOOGL", "CMG"],
+    blurb: "Pershing Square concentrated names from public reports. Delayed like any 13F.",
+  },
+  {
+    id: "hl-1",
+    name: "Crypto whale #1",
+    role: "Hyperliquid",
+    kind: "crypto-top",
+    needles: [],
+    blurb: "Top Hyperliquid wallet by 30-day PnL. We copy majors they are long. Not Pump.fun, not shorts.",
+  },
+  {
+    id: "hl-2",
+    name: "Crypto whale #2",
+    role: "Hyperliquid",
+    kind: "crypto-top",
+    needles: [],
+    blurb: "Second Hyperliquid wallet by 30-day PnL. Paper longs only — we skip shorts and memecoins we cannot quote.",
+  },
+  {
+    id: "hl-3",
+    name: "Crypto whale #3",
+    role: "Hyperliquid",
+    kind: "crypto-top",
+    needles: [],
+    blurb: "Third Hyperliquid wallet by 30-day PnL. Ranking and wallet change as the board updates.",
+  },
   {
     id: "pelosi",
     name: "Nancy Pelosi",

@@ -726,54 +726,74 @@ function Scoreboard({ scores }: { scores: BotScore[] }) {
 
 function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: string) => void }) {
   const copyBots = desk.bots.filter((b) => b.strategy === "copy");
+  const groups: { title: string; kinds: string[] }[] = [
+    { title: "Star investors (stocks)", kinds: ["star"] },
+    { title: "Crypto top traders", kinds: ["crypto-top"] },
+    { title: "Congress", kinds: ["congress", "spouse"] },
+    { title: "Public figures", kinds: ["public"] },
+  ];
   return (
-    <div className="mx-auto max-w-3xl space-y-3 p-4">
+    <div className="mx-auto max-w-3xl space-y-6 p-4">
       <div className="flex items-center gap-2">
         <Users className="size-4 text-primary" />
-        <h2 className="text-sm font-semibold">Copy public filings</h2>
+        <h2 className="text-sm font-semibold">Copy top traders</h2>
       </div>
       <p className="rounded-lg bg-elevated px-3 py-2 text-xs leading-relaxed text-warn">
-        This is not their live brokerage. Congress trades show up weeks later. Elon is a public
-        Tesla holding. Trump is the public DJT ticker.
+        Stocks: Buffett / ARKK / Ackman are public filings or ETF books — weeks to months late.
+        Crypto: Hyperliquid wallets ranked by 30-day PnL. We copy coins they are long, majors
+        only. Not Pump.fun, not their live clicks, not shorts.
       </p>
-      <ul className="space-y-2">
-        {copyBots.map((b) => {
+      {groups.map((g) => {
+        const bots = copyBots.filter((b) => {
           const leader = COPY_LEADERS.find((l) => l.id === b.leaderId);
-          const events = desk.copyEvents.filter((e) => e.leaderId === b.leaderId).slice(0, 3);
-          const score = desk.scores.find((s) => s.botId === b.id);
-          return (
-            <li key={b.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium text-sm">{leader?.name ?? b.name}</p>
-                  <p className="text-xs text-muted">
-                    {leader?.role} · {money(b.sizeUsd, 0)} per copy
-                  </p>
-                </div>
-                <OnOff on={b.enabled} onClick={() => onToggle(b.id)} />
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-muted">{leader?.blurb}</p>
-              <p className="mt-1 text-xs text-muted">{b.lastReason || "Off."}</p>
-              {score && score.trades > 0 && (
-                <p className={cn("mt-1 font-mono text-xs", score.netPnl >= 0 ? "text-primary" : "text-down")}>
-                  {score.trades} copies · net {money(score.netPnl)}
-                </p>
-              )}
-              {events.map((e) => (
-                <p key={e.id} className="mt-1 font-mono text-xs">
-                  <span className={e.side === "buy" ? "text-primary" : "text-down"}>
-                    {e.side === "buy" ? "BUY" : "SELL"} {e.ticker}
-                  </span>
-                  <span className="text-muted">
-                    {" "}
-                    {e.amount} · {e.delayDays}d late
-                  </span>
-                </p>
-              ))}
-            </li>
-          );
-        })}
-      </ul>
+          return leader && g.kinds.includes(leader.kind);
+        });
+        if (!bots.length) return null;
+        return (
+          <div key={g.title}>
+            <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">{g.title}</h3>
+            <ul className="space-y-2">
+              {bots.map((b) => {
+                const leader = COPY_LEADERS.find((l) => l.id === b.leaderId);
+                const events = desk.copyEvents.filter((e) => e.leaderId === b.leaderId).slice(0, 4);
+                const score = desk.scores.find((s) => s.botId === b.id);
+                return (
+                  <li key={b.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-sm">{b.name.replace(/^Copy /, "")}</p>
+                        <p className="text-xs text-muted">
+                          {leader?.role} · {money(b.sizeUsd, 0)} per copy
+                        </p>
+                      </div>
+                      <OnOff on={b.enabled} onClick={() => onToggle(b.id)} />
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-muted">{leader?.blurb}</p>
+                    <p className="mt-1 text-xs text-muted">{b.lastReason || "Off."}</p>
+                    {score && score.trades > 0 && (
+                      <p className={cn("mt-1 font-mono text-xs", score.netPnl >= 0 ? "text-primary" : "text-down")}>
+                        {score.trades} copies · net {money(score.netPnl)}
+                      </p>
+                    )}
+                    {events.map((e) => (
+                      <p key={e.id} className="mt-1 font-mono text-xs">
+                        <span className={e.side === "buy" ? "text-primary" : "text-down"}>
+                          {e.side === "buy" ? "BUY" : "SELL"} {e.ticker}
+                        </span>
+                        <span className="text-muted">
+                          {" "}
+                          {e.amount}
+                          {e.delayDays ? ` · ${e.delayDays}d late` : ""}
+                        </span>
+                      </p>
+                    ))}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }

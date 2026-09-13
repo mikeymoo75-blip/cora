@@ -99,8 +99,8 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "Pump.fun scalp exit: took about +12%, or a small drop hit. Out before a rug.",
     },
     copy: {
-      buy: "The person this bot follows filed a public purchase.",
-      sell: "The person this bot follows filed a public sale.",
+      buy: "The person this bot follows showed a public buy or a live long.",
+      sell: "The person this bot follows showed a public sale or closed the long.",
     },
   };
   return map[strategy][side];
@@ -376,54 +376,85 @@ export function tickBots(state: DeskState): DeskState {
     if (!bot.enabled) continue;
 
     if (bot.strategy === "copy") {
-      const pending = copyEvents.find((e) => !e.consumed && e.leaderId === bot.leaderId);
-      if (!pending) {
+      const pendingAll = copyEvents.filter((e) => !e.consumed && e.leaderId === bot.leaderId);
+      if (!pendingAll.length) {
         bot.lastSignal = "watching";
-        bot.lastReason = "Waiting for a new public filing from this person.";
+        const unread = /book unread|retrying/i.test(bot.lastReason);
+        bot.lastReason = unread
+          ? bot.lastReason
+          : bot.kind === "crypto"
+            ? "This wallet has no copyable longs right now (majors only, no shorts, not Pump.fun)."
+            : "Waiting for a new public filing or holding from this person.";
         bot.lastTickAt = Date.now();
         continue;
       }
-      const quote = next.quotes[pending.ticker] ?? next.quotes[bot.symbol];
-      if (!quote) {
-        bot.lastSignal = "no quote";
-        bot.lastReason = `No price yet for ${pending.ticker}.`;
-        continue;
-      }
-      if (quote.kind === "stock" && !rth) {
-        bot.lastSignal = "market closed";
-        bot.lastReason = "US stock market is closed. This copy bot waits until Monday–Friday 9:30–4:00 ET.";
-        continue;
-      }
-      bot.symbol = quote.id;
-      bot.kind = quote.kind;
-      const pos = next.positions[quote.id];
-      if (pending.side === "sell" && !pos) {
+      let acted = false;
+      let held = ownedSymbols(next, bot.id).length;
+      const maxNames = Math.max(1, bot.maxNames || 8);
+      for (const pending of pendingAll) {
+        const quote = next.quotes[pending.ticker];
+        if (!quote) {
+          bot.lastSignal = "no quote";
+          bot.lastReason = `No price yet for ${pending.ticker}.`;
+          continue;
+        }
+        if (quote.kind === "pump") {
+          pending.consumed = true;
+          continue;
+        }
+        if (quote.kind === "stock" && !rth) {
+          bot.lastSignal = "market closed";
+          bot.lastReason =
+            "US stock market is closed. This copy bot waits until Monday–Friday 9:30–4:00 ET.";
+          break;
+        }
+        const pos = next.positions[quote.id];
+        if (pending.side === "sell" && !pos) {
+          pending.consumed = true;
+          continue;
+        }
+        if (pending.side === "buy" && pos) {
+          pending.consumed = true;
+          continue;
+        }
+        if (pending.side === "buy" && held >= maxNames) {
+          pending.consumed = true;
+          continue;
+        }
+        bot.symbol = quote.id;
+        bot.kind = quote.kind;
+        const eq = markToMarket(next);
+        const size = Math.min(bot.sizeUsd, eq * 0.25, next.cash);
+        const notional = pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
+        const delayBit = pending.delayDays ? ` — ${pending.delayDays} days after the real trade` : "";
+        const reason =
+          quote.kind === "crypto"
+            ? `Copying ${pending.leaderName}'s ${pending.side === "buy" ? "long" : "exit"} in ${pending.ticker}. ${pending.amount}. Paper longs only — not Pump.fun.`
+            : `${whySignal("copy", pending.side)} ${pending.leaderName}: ${pending.side} ${pending.ticker} (${pending.amount || "amount n/a"}), filed ${pending.disclosureDate || "n/a"}${delayBit}.`;
+        next = applyFill(
+          next,
+          pending.side,
+          quote.id,
+          quote.kind,
+          notional,
+          "copy",
+          bot.name,
+          reason,
+          pending.leaderName,
+          bot.id,
+        );
         pending.consumed = true;
-        bot.lastSignal = "flat";
-        bot.lastReason = "They sold, but this book is not holding that name.";
-        continue;
+        bot.lastSignal = pending.side;
+        bot.lastReason = reason;
+        bot.lastTickAt = Date.now();
+        if (pending.side === "buy") held += 1;
+        acted = true;
       }
-      const eq = markToMarket(next);
-      const size = Math.min(bot.sizeUsd, eq * 0.25, next.cash);
-      const notional =
-        pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
-      const reason = `${whySignal("copy", pending.side)} ${pending.leaderName}: ${pending.side} ${pending.ticker} (${pending.amount || "amount n/a"}), filed ${pending.disclosureDate || "n/a"} — ${pending.delayDays} days after the real trade.`;
-      next = applyFill(
-        next,
-        pending.side,
-        quote.id,
-        quote.kind,
-        notional,
-        "copy",
-        bot.name,
-        reason,
-        pending.leaderName,
-        bot.id,
-      );
-      pending.consumed = true;
-      bot.lastSignal = pending.side;
-      bot.lastReason = reason;
-      bot.lastTickAt = Date.now();
+      if (!acted && !bot.lastReason) {
+        bot.lastSignal = "watching";
+        bot.lastReason = "Nothing new to copy this pass.";
+        bot.lastTickAt = Date.now();
+      }
       continue;
     }
 

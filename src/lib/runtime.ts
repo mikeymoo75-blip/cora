@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
-import { fetchCopyEvents } from "./copy";
+import { fetchCopyPack } from "./copy";
 import { applyFill, botScores, deskStats, markToMarket, mergeQuotes, stockMarketOpen, tickBots, todayStamp } from "./engine";
 import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
@@ -119,10 +119,11 @@ function defaultBots(): Bot[] {
       id: `copy-${l.id}`,
       name: `Copy ${l.name}`,
       enabled: false,
-      symbol: l.tickers?.[0] || "NVDA",
-      kind: "stock" as MarketKind,
+      symbol: l.tickers?.[0] || (l.kind === "crypto-top" ? "BTC" : "NVDA"),
+      kind: (l.kind === "crypto-top" ? "crypto" : "stock") as MarketKind,
       strategy: "copy" as StrategyId,
-      sizeUsd: l.kind === "public" ? 8000 : 4000,
+      sizeUsd:
+        l.kind === "public" ? 8000 : l.kind === "star" ? 6000 : l.kind === "crypto-top" ? 2500 : 4000,
       scope: "one" as ScanScope,
       maxNames: 8,
       leaderId: l.id,
@@ -188,7 +189,6 @@ function load(): DeskState {
     }
     const haveIds = new Set(bots.map((b) => b.id));
     for (const b of base.bots) {
-      if (b.strategy === "copy") continue;
       if (!haveIds.has(b.id)) bots.push(b);
     }
     return {
@@ -200,6 +200,7 @@ function load(): DeskState {
         lastReason: b.lastReason || "",
         scope: b.scope || "one",
         maxNames: b.maxNames || (b.scope && b.scope !== "one" ? 4 : 1),
+        kind: b.leaderId?.startsWith("hl-") ? "crypto" : b.kind,
       })),
       copyEvents: parsed.copyEvents || [],
       tests: parsed.tests || [],
@@ -262,27 +263,75 @@ export function snapshot(): DeskSnapshot {
 async function ensureQuote(symbol: string): Promise<void> {
   const s = getState();
   if (s.quotes[symbol]) return;
-  const q = await yahooOne(symbol);
+  let q = await yahooOne(symbol);
+  if (!q) q = await yahooOne(`${symbol}-USD`);
   if (!q) return;
-  setState({ ...getState(), quotes: { ...getState().quotes, [q.id]: q } });
+  const kind: MarketKind =
+    q.id.endsWith("-USD") || symbol.endsWith("-USD") || q.kind === "crypto" ? "crypto" : q.kind;
+  const stored = { ...q, id: symbol, symbol, kind };
+  setState({ ...getState(), quotes: { ...getState().quotes, [symbol]: stored } });
 }
 
 async function refreshCopy(force = false) {
   const s = getState();
-  if (!force && Date.now() - s.copyFetchedAt < 10 * 60 * 1000) return;
+  const unnamedWhales = s.bots.some((b) => b.id.startsWith("copy-hl-") && /whale #/.test(b.name));
+  if (!force && !unnamedWhales && Date.now() - s.copyFetchedAt < 10 * 60 * 1000) return;
   try {
-    const fresh = await fetchCopyEvents();
+    const pack = await fetchCopyPack();
+    const fresh = pack.events;
     const prev = new Map(s.copyEvents.map((e) => [e.id, e]));
     const merged: CopyEvent[] = fresh.map((e) => {
       const old = prev.get(e.id);
       return old ? { ...e, consumed: old.consumed } : e;
     });
+    // If a Hyperliquid whale exits a long we previously copied, emit a sell.
+    if (pack.whales.length) {
+      const liveLongs = new Map<string, Set<string>>();
+      for (const e of fresh) {
+        if (!e.leaderId.startsWith("hl-") || e.side !== "buy") continue;
+        if (!liveLongs.has(e.leaderId)) liveLongs.set(e.leaderId, new Set());
+        liveLongs.get(e.leaderId)!.add(e.ticker);
+      }
+      const stamp = todayStamp();
+      for (const whale of pack.whales) {
+        if (!whale.bookOk) continue;
+        const live = liveLongs.get(whale.id) ?? new Set<string>();
+        const prevTickers = new Set(
+          s.copyEvents.filter((e) => e.leaderId === whale.id && e.side === "buy").map((e) => e.ticker),
+        );
+        for (const ticker of prevTickers) {
+          if (live.has(ticker)) continue;
+          const id = `${whale.id}-${ticker}-flat-${stamp}`;
+          if (merged.some((e) => e.id === id)) continue;
+          merged.push({
+            id,
+            leaderId: whale.id,
+            leaderName: whale.name,
+            ticker,
+            side: "sell",
+            tradeDate: stamp,
+            disclosureDate: stamp,
+            amount: "wallet no longer long",
+            delayDays: 0,
+            consumed: prev.get(id)?.consumed ?? false,
+            note: "Wallet closed this long. Paper copy exits too.",
+          });
+        }
+      }
+    }
     for (const e of merged) {
       if (!getState().quotes[e.ticker]) await ensureQuote(e.ticker);
     }
+    // Keep last-known longs when a whale book could not be read this pass.
+    for (const whale of pack.whales) {
+      if (whale.bookOk) continue;
+      for (const e of s.copyEvents.filter((ev) => ev.leaderId === whale.id)) {
+        if (!merged.some((m) => m.id === e.id)) merged.push(e);
+      }
+    }
     // Public-figure synthetic holds: keep a buy signal for their flagship ticker.
     for (const leader of COPY_LEADERS) {
-      if (leader.kind !== "public" || !leader.tickers?.length) continue;
+      if ((leader.kind !== "public" && leader.kind !== "star") || !leader.tickers?.length) continue;
       for (const ticker of leader.tickers) {
         const id = `public-${leader.id}-${ticker}`;
         if (merged.some((e) => e.id === id)) continue;
@@ -301,7 +350,20 @@ async function refreshCopy(force = false) {
         });
       }
     }
-    setState({ ...getState(), copyEvents: merged, copyFetchedAt: Date.now() });
+    let bots = getState().bots;
+    if (pack.whales.length) {
+      bots = bots.map((b) => {
+        const w = pack.whales.find((x) => b.id === `copy-${x.id}`);
+        if (!w) return b;
+        return { ...b, name: `Copy ${w.name}`, lastReason: w.detail };
+      });
+    }
+    setState({
+      ...getState(),
+      bots,
+      copyEvents: merged,
+      copyFetchedAt: Date.now(),
+    });
   } catch (err) {
     console.error("[cora] copy feed failed", err);
     setState({ ...getState(), copyFetchedAt: Date.now() });
@@ -342,7 +404,9 @@ export async function tickOnce(): Promise<DeskSnapshot> {
 export function startDeskLoop() {
   if (g().__coraLoop) return;
   console.info("[cora] server desk loop on — bots run with the page closed");
-  void tickOnce();
+  setTimeout(() => {
+    void tickOnce();
+  }, 1200);
   g().__coraLoop = setInterval(() => {
     void tickOnce();
   }, TICK_MS);
