@@ -67,7 +67,7 @@ async function loadJson(url: string): Promise<RawRow[]> {
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { Accept: "application/json", "User-Agent": "ApexDesk/1.0" },
+      headers: { Accept: "application/json", "User-Agent": "CoraDesktop/1.0" },
     });
     if (!res.ok) return [];
     const json = (await res.json()) as unknown;

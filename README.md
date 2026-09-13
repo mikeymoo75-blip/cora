@@ -1,4 +1,4 @@
-# Apex Desk (`cora`)
+# Cora Desktop (`cora`)
 
 24/7 server paper desk for stocks, crypto, and Pump.fun-style coins.
 Bots keep running after you close the browser. Fills, fees, and P/L persist

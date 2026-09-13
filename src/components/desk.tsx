@@ -85,7 +85,7 @@ export function Desk() {
                 Server desk · {desk.loopOk ? "loop on" : "loop warm"} ·{" "}
                 {ago(desk.loopAt)}
               </p>
-              <h1 className="text-lg font-semibold leading-tight">Apex Desk</h1>
+              <h1 className="text-lg font-semibold leading-tight">Cora Desktop</h1>
             </div>
           </div>
           <div className="flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto font-mono text-xs">

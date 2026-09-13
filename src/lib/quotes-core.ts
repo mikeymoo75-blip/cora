@@ -9,7 +9,7 @@ async function fetchJson(url: string, timeoutMs = 7000): Promise<unknown> {
       signal: ctrl.signal,
       headers: {
         Accept: "application/json",
-        "User-Agent": "ApexDesk/1.0 (paper-trading)",
+        "User-Agent": "CoraDesktop/1.0 (paper-trading)",
       },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
