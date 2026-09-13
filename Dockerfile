@@ -17,6 +17,7 @@ ENV DOCKER=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=8080
 ENV TZ=America/New_York
+ENV PATH="/app/node_modules/.bin:${PATH}"
 EXPOSE 8080
 
 CMD ["node", "scripts/with-app-env.mjs", "vite", "preview", "--host", "0.0.0.0", "--port", "8080"]
