@@ -39,8 +39,10 @@ export type Fill = {
   fee: number;
   realizedPnl: number;
   source: FillSource;
+  botId?: string;
   botName?: string;
   leaderName?: string;
+  reason: string;
   note?: string;
 };
 
@@ -55,6 +57,7 @@ export type Bot = {
   leaderId?: string;
   lastSignal: string;
   lastTickAt: number;
+  lastReason: string;
 };
 
 export type CopyEvent = {
@@ -82,6 +85,31 @@ export type DeskStats = {
   lossCount: number;
 };
 
+export type BotScore = {
+  botId: string;
+  name: string;
+  trades: number;
+  fees: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  netPnl: number;
+  lastReason: string;
+  enabled: boolean;
+};
+
+export type TestRun = {
+  id: string;
+  name: string;
+  startedAt: number;
+  endedAt: number;
+  startingCash: number;
+  endingEquity: number;
+  realizedPnl: number;
+  feesPaid: number;
+  netPnl: number;
+  trades: number;
+};
+
 export type DeskState = {
   cash: number;
   startingCash: number;
@@ -101,6 +129,14 @@ export type DeskState = {
   liveQuotes: boolean;
   loopAt: number;
   loopOk: boolean;
+  tests: TestRun[];
+  runStartedAt: number;
 };
 
-export type DeskSnapshot = DeskState & { stats: DeskStats; equityNow: number };
+export type DeskSnapshot = DeskState & {
+  stats: DeskStats;
+  equityNow: number;
+  scores: BotScore[];
+  lastFill: Fill | null;
+  stockMarketOpen: boolean;
+};

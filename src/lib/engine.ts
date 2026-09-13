@@ -1,6 +1,16 @@
 import { calcFees } from "./fees";
 import { slipBps } from "./universe";
-import type { Bot, DeskState, DeskStats, Fill, MarketKind, Position, Quote } from "./types";
+import type {
+  Bot,
+  BotScore,
+  DeskState,
+  DeskStats,
+  Fill,
+  MarketKind,
+  Position,
+  Quote,
+  StrategyId,
+} from "./types";
 
 function mean(xs: number[]): number {
   if (!xs.length) return 0;
@@ -45,6 +55,53 @@ export function deskStats(state: DeskState): DeskStats {
   };
 }
 
+/** Regular NYSE hours, weekdays 9:30–16:00 America/New_York. */
+export function stockMarketOpen(at = Date.now()): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(at));
+  const weekday = parts.find((p) => p.type === "weekday")?.value;
+  if (weekday === "Sat" || weekday === "Sun") return false;
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const mins = hour * 60 + minute;
+  return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
+export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
+  const map: Record<StrategyId, { buy: string; sell: string }> = {
+    sma: {
+      buy: "The short-term average moved above the longer-term average, so the trend looks like it is turning up.",
+      sell: "The short-term average dropped back under the longer-term average, so the uptrend looks done.",
+    },
+    meanrev: {
+      buy: "Price is stretched well below its recent range, so the bot is buying a dip.",
+      sell: "Price bounced back toward the middle of its recent range, so the bot is taking the bounce.",
+    },
+    momentum: {
+      buy: "Price jumped about 1.4% in the last few ticks, so the bot is riding strength.",
+      sell: "The bounce faded, or the position is up about 4%, so the bot is taking profit / cutting.",
+    },
+    dca: {
+      buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
+      sell: "The position is up about 6% from cost, so the bot is cashing in.",
+    },
+    sniper: {
+      buy: "This coin is ripping (about +6%), so the bot is chasing the move.",
+      sell: "It dumped from the peak or from the entry, so the bot is getting out.",
+    },
+    copy: {
+      buy: "The person this bot follows filed a public purchase.",
+      sell: "The person this bot follows filed a public sale.",
+    },
+  };
+  return map[strategy][side];
+}
+
 export function applyFill(
   state: DeskState,
   side: "buy" | "sell",
@@ -53,8 +110,9 @@ export function applyFill(
   notional: number,
   source: Fill["source"],
   botName?: string,
-  note?: string,
+  reason?: string,
   leaderName?: string,
+  botId?: string,
 ): DeskState {
   const quote = state.quotes[symbol];
   if (!quote || quote.price <= 0) return state;
@@ -85,7 +143,6 @@ export function applyFill(
   if (side === "buy") {
     cash -= gross + fees.total;
     const prev = positions[symbol];
-    // Fold buy fees into average cost so P/L is net of round-trip costs.
     const cost = gross + fees.total;
     if (!prev) {
       positions[symbol] = { symbol, kind, qty, avg: cost / qty, peak: quote.price };
@@ -124,9 +181,13 @@ export function applyFill(
     fee: fees.total,
     realizedPnl,
     source,
+    botId,
     botName,
     leaderName,
-    note: note || fees.note,
+    reason:
+      reason ||
+      (source === "manual" ? "You placed this trade." : fees.note),
+    note: fees.note,
   };
 
   return {
@@ -181,6 +242,30 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
   }
 }
 
+export function botScores(state: DeskState): BotScore[] {
+  return state.bots.map((bot) => {
+    const fills = state.fills.filter((f) => f.botId === bot.id || f.botName === bot.name);
+    const realizedPnl = fills.reduce((s, f) => s + (f.realizedPnl || 0), 0);
+    const fees = fills.reduce((s, f) => s + f.fee, 0);
+    const lastBuy = fills.find((f) => f.side === "buy" && f.symbol === bot.symbol);
+    const pos = state.positions[bot.symbol];
+    const q = state.quotes[bot.symbol];
+    const unrealizedPnl =
+      lastBuy && pos && q ? (q.price - pos.avg) * pos.qty : 0;
+    return {
+      botId: bot.id,
+      name: bot.name,
+      trades: fills.length,
+      fees,
+      realizedPnl,
+      unrealizedPnl,
+      netPnl: realizedPnl + unrealizedPnl,
+      lastReason: bot.lastReason || "",
+      enabled: bot.enabled,
+    };
+  });
+}
+
 export function tickBots(state: DeskState): DeskState {
   if (state.halted) return state;
 
@@ -191,29 +276,40 @@ export function tickBots(state: DeskState): DeskState {
     return {
       ...state,
       halted: true,
-      haltReason: `Daily loss halt at ${lossPct.toFixed(2)}%`,
-      bots: state.bots.map((b) => ({ ...b, enabled: false, lastSignal: "halted" })),
+      haltReason: `Paused: the paper book is down ${lossPct.toFixed(1)}% today (8% daily brake).`,
+      bots: state.bots.map((b) => ({
+        ...b,
+        enabled: false,
+        lastSignal: "halted",
+        lastReason: "Daily loss brake hit. Turn bots back on after you resume.",
+      })),
     };
   }
 
   const bots = next.bots.map((b) => ({ ...b }));
   const copyEvents = next.copyEvents.map((e) => ({ ...e }));
+  const rth = stockMarketOpen();
 
   for (const bot of bots) {
     if (!bot.enabled) continue;
 
     if (bot.strategy === "copy") {
-      const pending = copyEvents.find(
-        (e) => !e.consumed && e.leaderId === bot.leaderId && e.ticker === bot.symbol,
-      );
+      const pending = copyEvents.find((e) => !e.consumed && e.leaderId === bot.leaderId);
       if (!pending) {
         bot.lastSignal = "watching";
+        bot.lastReason = "Waiting for a new public filing from this person.";
         bot.lastTickAt = Date.now();
         continue;
       }
       const quote = next.quotes[pending.ticker] ?? next.quotes[bot.symbol];
       if (!quote) {
         bot.lastSignal = "no quote";
+        bot.lastReason = `No price yet for ${pending.ticker}.`;
+        continue;
+      }
+      if (quote.kind === "stock" && !rth) {
+        bot.lastSignal = "market closed";
+        bot.lastReason = "US stock market is closed. This copy bot waits until Monday–Friday 9:30–4:00 ET.";
         continue;
       }
       bot.symbol = quote.id;
@@ -222,12 +318,14 @@ export function tickBots(state: DeskState): DeskState {
       if (pending.side === "sell" && !pos) {
         pending.consumed = true;
         bot.lastSignal = "flat";
+        bot.lastReason = "They sold, but this book is not holding that name.";
         continue;
       }
       const eq = markToMarket(next);
       const size = Math.min(bot.sizeUsd, eq * 0.25, next.cash);
       const notional =
         pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
+      const reason = `${whySignal("copy", pending.side)} ${pending.leaderName}: ${pending.side} ${pending.ticker} (${pending.amount || "amount n/a"}), filed ${pending.disclosureDate || "n/a"} — ${pending.delayDays} days after the real trade.`;
       next = applyFill(
         next,
         pending.side,
@@ -236,11 +334,13 @@ export function tickBots(state: DeskState): DeskState {
         notional,
         "copy",
         bot.name,
-        `${pending.leaderName} ${pending.amount} · filed ${pending.disclosureDate} (${pending.delayDays}d late)`,
+        reason,
         pending.leaderName,
+        bot.id,
       );
       pending.consumed = true;
       bot.lastSignal = pending.side;
+      bot.lastReason = reason;
       bot.lastTickAt = Date.now();
       continue;
     }
@@ -248,6 +348,13 @@ export function tickBots(state: DeskState): DeskState {
     const quote = next.quotes[bot.symbol];
     if (!quote) {
       bot.lastSignal = "no quote";
+      bot.lastReason = "No price for this symbol.";
+      continue;
+    }
+    if (bot.kind === "stock" && !rth) {
+      bot.lastSignal = "market closed";
+      bot.lastReason = "US stock market is closed. Stock bots wait until 9:30–4:00 ET weekdays. Crypto and Pump.fun still run.";
+      bot.lastTickAt = Date.now();
       continue;
     }
     const pos = next.positions[bot.symbol];
@@ -263,14 +370,30 @@ export function tickBots(state: DeskState): DeskState {
     const sig = technicalSignal(bot, quote, next.positions[bot.symbol]);
     bot.lastSignal = sig;
     bot.lastTickAt = Date.now();
-    if (sig === "hold") continue;
+    if (sig === "hold") {
+      bot.lastReason = "Rule says wait — no buy or sell right now.";
+      continue;
+    }
 
     const eq = markToMarket(next);
     const cap = eq * 0.25;
     const size = Math.min(bot.sizeUsd, cap, next.cash);
     if (sig === "buy" && size < 10) continue;
     const notional = sig === "sell" ? (next.positions[bot.symbol]?.qty ?? 0) * quote.price : size;
-    next = applyFill(next, sig, bot.symbol, bot.kind, notional, "bot", bot.name, bot.strategy);
+    const reason = whySignal(bot.strategy, sig);
+    bot.lastReason = reason;
+    next = applyFill(
+      next,
+      sig,
+      bot.symbol,
+      bot.kind,
+      notional,
+      "bot",
+      bot.name,
+      reason,
+      undefined,
+      bot.id,
+    );
   }
 
   const v = markToMarket(next);

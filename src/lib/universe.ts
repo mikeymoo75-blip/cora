@@ -71,27 +71,27 @@ export function slipBps(kind: MarketKind): number {
 
 export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }> = {
   sma: {
-    label: "SMA cross",
-    blurb: "Buy when the fast average crosses above the slow. Sell on the reverse.",
+    label: "Trend follow",
+    blurb: "Buys when the short-term average crosses above the long one. Sells when it crosses back down.",
   },
   meanrev: {
-    label: "Mean reversion",
-    blurb: "Buy stretched selloffs. Fade stretched rallies.",
+    label: "Buy the dip",
+    blurb: "Buys when price is stretched down vs recent range. Sells when it bounces back.",
   },
   momentum: {
-    label: "Momentum",
-    blurb: "Ride short-horizon strength. Cut when it fades.",
+    label: "Ride the move",
+    blurb: "Buys a quick jump. Sells if it fades or you're up about 4%.",
   },
   dca: {
-    label: "DCA dip",
-    blurb: "Buy a fixed notional when price sits below the 20-tick average.",
+    label: "Dip buyer",
+    blurb: "Buys a set dollar amount when price is below its recent average. Sells around +6%.",
   },
   sniper: {
-    label: "Pump sniper",
-    blurb: "Meme chase: buy a surge, trail a stop, dump on a crash.",
+    label: "Pump chase",
+    blurb: "Buys a sharp pump. Sells if it dumps from the peak or from your entry.",
   },
   copy: {
-    label: "Copy leader",
-    blurb: "Mirrors public STOCK Act filings or a known public holding. Delayed on purpose.",
+    label: "Copy a person",
+    blurb: "Mirrors public STOCK Act filings or a known public holding. Often weeks late.",
   },
 };

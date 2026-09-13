@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyEvents } from "./copy";
-import { applyFill, deskStats, markToMarket, mergeQuotes, tickBots, todayStamp } from "./engine";
+import { applyFill, botScores, deskStats, markToMarket, mergeQuotes, stockMarketOpen, tickBots, todayStamp } from "./engine";
 import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
@@ -27,6 +27,7 @@ function defaultBots(): Bot[] {
       sizeUsd: 5000,
       lastSignal: "idle",
       lastTickAt: 0,
+      lastReason: "",
     },
     {
       id: "bot-spy",
@@ -38,6 +39,7 @@ function defaultBots(): Bot[] {
       sizeUsd: 4000,
       lastSignal: "idle",
       lastTickAt: 0,
+      lastReason: "",
     },
     {
       id: "bot-btc",
@@ -49,6 +51,7 @@ function defaultBots(): Bot[] {
       sizeUsd: 6000,
       lastSignal: "idle",
       lastTickAt: 0,
+      lastReason: "",
     },
     {
       id: "bot-sol",
@@ -60,6 +63,7 @@ function defaultBots(): Bot[] {
       sizeUsd: 3500,
       lastSignal: "idle",
       lastTickAt: 0,
+      lastReason: "",
     },
     {
       id: "bot-pump",
@@ -71,6 +75,7 @@ function defaultBots(): Bot[] {
       sizeUsd: 800,
       lastSignal: "idle",
       lastTickAt: 0,
+      lastReason: "",
     },
     ...COPY_LEADERS.map((l) => ({
       id: `copy-${l.id}`,
@@ -83,6 +88,7 @@ function defaultBots(): Bot[] {
       leaderId: l.id,
       lastSignal: "idle",
       lastTickAt: 0,
+      lastReason: "",
     })),
   ];
 }
@@ -113,6 +119,8 @@ function blank(): DeskState {
     liveQuotes: false,
     loopAt: 0,
     loopOk: false,
+    tests: [],
+    runStartedAt: Date.now(),
   };
 }
 
@@ -127,8 +135,16 @@ function load(): DeskState {
       ...base,
       ...parsed,
       quotes: { ...base.quotes, ...(parsed.quotes || {}) },
-      bots: haveCopy ? bots : [...bots, ...base.bots.filter((b) => b.strategy === "copy")],
+      bots: (haveCopy ? bots : [...bots, ...base.bots.filter((b) => b.strategy === "copy")]).map(
+        (b) => ({ ...b, lastReason: b.lastReason || "" }),
+      ),
       copyEvents: parsed.copyEvents || [],
+      tests: parsed.tests || [],
+      runStartedAt: parsed.runStartedAt || Date.now(),
+      fills: (parsed.fills || []).map((f) => ({
+        ...f,
+        reason: f.reason || f.note || "",
+      })),
     };
   } catch {
     return blank();
@@ -170,7 +186,14 @@ function setState(next: DeskState) {
 
 export function snapshot(): DeskSnapshot {
   const s = getState();
-  return { ...s, stats: deskStats(s), equityNow: markToMarket(s) };
+  return {
+    ...s,
+    stats: deskStats(s),
+    equityNow: markToMarket(s),
+    scores: botScores(s),
+    lastFill: s.fills[0] ?? null,
+    stockMarketOpen: stockMarketOpen(),
+  };
 }
 
 async function ensureQuote(symbol: string): Promise<void> {
@@ -266,7 +289,16 @@ export function placeOrder(side: "buy" | "sell", symbol: string, notional: numbe
   const s = getState();
   const q = s.quotes[symbol];
   if (!q) return snapshot();
-  const next = applyFill(s, side, q.id, q.kind, notional, "manual");
+  const next = applyFill(
+    s,
+    side,
+    q.id,
+    q.kind,
+    notional,
+    "manual",
+    undefined,
+    "You placed this trade.",
+  );
   setState({
     ...next,
     equity: [...next.equity, { t: Date.now(), v: markToMarket(next) }].slice(-480),
@@ -302,6 +334,7 @@ export function addBot(input: {
     sizeUsd: input.sizeUsd,
     lastSignal: "idle",
     lastTickAt: 0,
+    lastReason: "",
   };
   setState({ ...s, bots: [...s.bots, bot] });
   return snapshot();
@@ -322,8 +355,25 @@ export function setBotSize(id: string, sizeUsd: number) {
   return snapshot();
 }
 
-export function resetBook() {
+export function resetBook(name?: string) {
   const s = getState();
+  const ended = markToMarket(s);
+  const stats = deskStats(s);
+  const tests = [...(s.tests || [])];
+  if (s.fills.length > 0) {
+    tests.unshift({
+      id: `run-${Date.now()}`,
+      name: (name || "").trim() || `Test ${tests.length + 1}`,
+      startedAt: s.runStartedAt || Date.now(),
+      endedAt: Date.now(),
+      startingCash: s.startingCash,
+      endingEquity: ended,
+      realizedPnl: stats.realizedPnl,
+      feesPaid: stats.feesPaid,
+      netPnl: stats.netPnl,
+      trades: s.fills.length,
+    });
+  }
   const next = blank();
   next.quotes = s.quotes;
   next.liveQuotes = s.liveQuotes;
@@ -331,11 +381,34 @@ export function resetBook() {
     ...b,
     lastSignal: b.enabled ? "idle" : b.lastSignal,
     lastTickAt: 0,
+    lastReason: b.enabled ? "New test — waiting for the next signal." : b.lastReason,
   }));
   next.copyEvents = s.copyEvents.map((e) => ({ ...e, consumed: false }));
   next.copyFetchedAt = s.copyFetchedAt;
   next.selectedId = s.selectedId;
+  next.tests = tests.slice(0, 40);
+  next.runStartedAt = Date.now();
   setState(next);
+  return snapshot();
+}
+
+export async function addSymbol(raw: string) {
+  const cleaned = raw.trim().toUpperCase().replace(/^\$/, "");
+  if (!cleaned) return snapshot();
+  const existing = getState().quotes[cleaned] || getState().quotes[`pump:${cleaned}`];
+  if (existing) {
+    setState({ ...getState(), selectedId: existing.id });
+    return snapshot();
+  }
+  let q = await yahooOne(cleaned);
+  if (!q) q = await yahooOne(`${cleaned}-USD`);
+  if (!q) return snapshot();
+  const s = getState();
+  setState({
+    ...s,
+    quotes: { ...s.quotes, [q.id]: q },
+    selectedId: q.id,
+  });
   return snapshot();
 }
 

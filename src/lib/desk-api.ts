@@ -44,12 +44,19 @@ export const removeBot = createServerFn({ method: "POST" })
     return m.removeBot(data.id);
   });
 
-export const resetBook = createServerFn({ method: "POST" }).handler(
-  async (): Promise<DeskSnapshot> => {
+export const resetBook = createServerFn({ method: "POST" })
+  .validator((input: { name?: string } = {}) => input)
+  .handler(async ({ data }): Promise<DeskSnapshot> => {
     const m = await rt();
-    return m.resetBook();
-  },
-);
+    return m.resetBook(data?.name);
+  });
+
+export const addSymbol = createServerFn({ method: "POST" })
+  .validator((input: { symbol: string }) => input)
+  .handler(async ({ data }): Promise<DeskSnapshot> => {
+    const m = await rt();
+    return m.addSymbol(data.symbol);
+  });
 
 export const resumeHalt = createServerFn({ method: "POST" }).handler(
   async (): Promise<DeskSnapshot> => {

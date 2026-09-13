@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   addBot,
+  addSymbol,
   loadDesk,
   placeOrder,
   removeBot,
@@ -20,7 +21,7 @@ export function useServerDesk() {
       setDesk(next);
       setErr("");
     } catch {
-      setErr("Server desk unreachable");
+      setErr("Can't reach the server desk");
     }
   }, []);
 
@@ -32,20 +33,17 @@ export function useServerDesk() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  const run = useCallback(
-    async (fn: () => Promise<DeskSnapshot>) => {
-      try {
-        const next = await fn();
-        setDesk(next);
-        setErr("");
-        return next;
-      } catch {
-        setErr("Action failed");
-        return null;
-      }
-    },
-    [],
-  );
+  const run = useCallback(async (fn: () => Promise<DeskSnapshot>) => {
+    try {
+      const next = await fn();
+      setDesk(next);
+      setErr("");
+      return next;
+    } catch {
+      setErr("That action failed");
+      return null;
+    }
+  }, []);
 
   return {
     desk,
@@ -57,7 +55,8 @@ export function useServerDesk() {
     addBot: (input: { name: string; symbol: string; strategy: StrategyId; sizeUsd: number }) =>
       run(() => addBot({ data: input })),
     removeBot: (id: string) => run(() => removeBot({ data: { id } })),
-    reset: () => run(() => resetBook()),
+    addSymbol: (symbol: string) => run(() => addSymbol({ data: { symbol } })),
+    reset: (name?: string) => run(() => resetBook({ data: { name } })),
     resume: () => run(() => resumeHalt()),
   };
 }
