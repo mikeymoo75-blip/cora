@@ -9,6 +9,17 @@ export function money(n: number, digits = 2): string {
   });
 }
 
+export function signedMoney(n: number, digits = 2): string {
+  if (n > 0.0000005) return `+${money(n, digits)}`;
+  return money(n, digits);
+}
+
+export function signedClass(n: number): "text-primary" | "text-down" | "text-muted" {
+  if (n > 0.0000005) return "text-primary";
+  if (n < -0.0000005) return "text-down";
+  return "text-muted";
+}
+
 export function compactMoney(n: number): string {
   const sign = n < 0 ? "-" : "";
   const a = Math.abs(n);

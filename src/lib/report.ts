@@ -1,5 +1,5 @@
 import { walletViews, walletIdFor } from "./engine";
-import { money, pct } from "./format";
+import { money, pct, signedMoney } from "./format";
 import type { DeskReport, DeskState } from "./types";
 import { STRATEGY_COPY } from "./universe";
 
@@ -72,10 +72,20 @@ export function buildReport(state: DeskState): DeskReport {
   if (!fills.length) lines.push("  None.");
   for (const f of fills) {
     const who = f.source === "manual" ? "You" : f.leaderName || f.botName || f.source;
-    const pnl = f.side === "sell" ? `  P/L ${money(f.realizedPnl)}` : "";
-    lines.push(
-      `  ${new Date(f.ts).toLocaleTimeString("en-US")}  ${f.side.toUpperCase()} ${state.quotes[f.symbol]?.symbol ?? f.symbol}  ${money(f.notional)}  fee ${money(f.fee)}  ${who}${pnl}`,
-    );
+    const name = state.quotes[f.symbol]?.symbol ?? f.symbol;
+    const when = new Date(f.ts).toLocaleTimeString("en-US");
+    const gas = f.gasFee ? `  gas ${money(f.gasFee)}` : "";
+    if (f.side === "buy") {
+      lines.push(
+        `  ${when}  BUY ${name}  paid ${money(f.notional)}  fees ${money(f.fee)}${gas}  total out ${money(f.notional + f.fee)}  ${who}`,
+      );
+    } else {
+      const netIn = f.notional - f.fee;
+      const boughtFor = netIn - f.realizedPnl;
+      lines.push(
+        `  ${when}  SELL ${name}  sold ${money(f.notional)}  fees ${money(f.fee)}${gas}  net in ${money(netIn)}  bought for ${money(boughtFor)}  P/L ${signedMoney(f.realizedPnl)}  ${who}`,
+      );
+    }
     if (f.reason) lines.push(`      ${f.reason}`);
   }
   lines.push("");

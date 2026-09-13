@@ -24,7 +24,7 @@ import { toast, Toaster } from "sonner";
 import { Spark } from "@/components/spark";
 import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
-import { ago, clock, compactMoney, money, pct, qtyFmt } from "@/lib/format";
+import { ago, clock, compactMoney, money, pct, qtyFmt, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
 import type {
   BotScore,
@@ -394,8 +394,8 @@ function WalletPill({ wallet }: { wallet: WalletView }) {
       </div>
       <div className="mt-0.5 flex items-baseline justify-between gap-2">
         <span className="text-muted">cash {compactMoney(wallet.cash)}</span>
-        <span className={cn("tabular-nums", tone === "up" ? "text-primary" : "text-down")}>
-          {money(wallet.netPnl)}
+        <span className={cn("tabular-nums", signedClass(wallet.netPnl))}>
+          {signedMoney(wallet.netPnl)}
         </span>
       </div>
     </div>
@@ -466,8 +466,8 @@ function HoldingsStrip({
               >
                 <span className="flex items-baseline justify-between gap-2">
                   <span className="font-mono text-sm">{q?.symbol ?? p.symbol}</span>
-                  <span className={cn("font-mono text-xs", mtm >= 0 ? "text-primary" : "text-down")}>
-                    {money(mtm)}
+                  <span className={cn("font-mono text-xs", signedClass(mtm))}>
+                    {signedMoney(mtm)}
                   </span>
                 </span>
                 <span className="mt-0.5 block font-mono text-xs text-muted">
@@ -1007,8 +1007,8 @@ function Scoreboard({ scores }: { scores: BotScore[] }) {
               </td>
               <td className="px-3 py-2">{s.trades}</td>
               <td className="px-3 py-2">{money(s.fees)}</td>
-              <td className={cn("px-3 py-2", s.netPnl >= 0 ? "text-primary" : "text-down")}>
-                {money(s.netPnl)}
+              <td className={cn("px-3 py-2", signedClass(s.netPnl))}>
+                {signedMoney(s.netPnl)}
               </td>
             </tr>
           ))}
@@ -1181,8 +1181,8 @@ function LogPane({
                     {qtyFmt(p.qty)} @ {money(p.avg)}
                   </span>
                 </button>
-                <span className={cn("font-mono text-xs", mtm >= 0 ? "text-primary" : "text-down")}>
-                  {money(mtm)}
+                <span className={cn("font-mono text-xs", signedClass(mtm))}>
+                  {signedMoney(mtm)}
                 </span>
                 <button
                   type="button"
@@ -1224,6 +1224,15 @@ function OnOff({ on, onClick }: { on: boolean; onClick: () => void }) {
   );
 }
 
+function feeLine(fill: Fill): string {
+  const bits: string[] = [];
+  if (fill.gasFee) bits.push(`gas ${money(fill.gasFee)}`);
+  if (fill.venueFee) bits.push(`venue ${money(fill.venueFee)}`);
+  if (fill.regulatoryFee) bits.push(`reg ${money(fill.regulatoryFee)}`);
+  if (!bits.length) return money(fill.fee);
+  return `${money(fill.fee)} (${bits.join(" · ")})`;
+}
+
 function FillRow({ fill, symbol }: { fill: Fill; symbol: string }) {
   const who =
     fill.source === "manual"
@@ -1231,24 +1240,51 @@ function FillRow({ fill, symbol }: { fill: Fill; symbol: string }) {
       : fill.source === "copy"
         ? fill.leaderName || fill.botName || "Copy"
         : fill.botName || "Bot";
+  const totalOut = fill.notional + fill.fee;
+  const netIn = fill.notional - fill.fee;
+  const boughtFor = fill.side === "sell" ? netIn - fill.realizedPnl : 0;
+
   return (
     <li className="rounded-md bg-surface px-3 py-2 text-xs">
-      <div className="flex justify-between font-mono">
-        <span className={fill.side === "buy" ? "text-primary" : "text-down"}>
+      <div className="flex justify-between gap-2 font-mono">
+        <span className={fill.side === "buy" ? "text-primary" : "text-fg"}>
           {fill.side === "buy" ? "BUY" : "SELL"} {symbol}
         </span>
-        <span>{money(fill.price)}</span>
+        <span className="text-muted">{clock(fill.ts)}</span>
       </div>
-      <p className="mt-1 leading-relaxed text-muted">{fill.reason}</p>
-      <div className="mt-1 font-mono text-muted">
-        {who} · {qtyFmt(fill.qty)} · fee {money(fill.fee)}
-        {fill.gasFee ? ` · gas ${money(fill.gasFee)}` : ""} · {clock(fill.ts)}
-      </div>
-      {fill.side === "sell" && (
-        <div className={fill.realizedPnl >= 0 ? "text-primary" : "text-down"}>
-          Profit {money(fill.realizedPnl)}
-        </div>
+      <p className="mt-1 text-muted">
+        {who}
+        {fill.kind === "pump" ? " · Pump.fun" : fill.kind === "crypto" ? " · crypto" : " · stock"}
+      </p>
+      {fill.side === "buy" ? (
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
+          <dt className="text-muted">Paid</dt>
+          <dd className="text-right">{money(fill.notional)}</dd>
+          <dt className="text-muted">Fees + gas</dt>
+          <dd className="text-right">{feeLine(fill)}</dd>
+          <dt className="text-muted">Total out</dt>
+          <dd className="text-right font-medium">{money(totalOut)}</dd>
+        </dl>
+      ) : (
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
+          <dt className="text-muted">Sold</dt>
+          <dd className="text-right">{money(fill.notional)}</dd>
+          <dt className="text-muted">Fees + gas</dt>
+          <dd className="text-right">{feeLine(fill)}</dd>
+          <dt className="text-muted">Net in</dt>
+          <dd className="text-right">{money(netIn)}</dd>
+          <dt className="text-muted">Bought for</dt>
+          <dd className="text-right">{money(boughtFor)} incl. fees</dd>
+          <dt className={cn("font-medium", signedClass(fill.realizedPnl))}>P/L</dt>
+          <dd className={cn("text-right font-medium", signedClass(fill.realizedPnl))}>
+            {signedMoney(fill.realizedPnl)}
+          </dd>
+        </dl>
       )}
+      <p className="mt-2 leading-relaxed text-muted">{fill.reason}</p>
+      <p className="mt-0.5 font-mono text-muted">
+        {qtyFmt(fill.qty)} @ {money(fill.price)}
+      </p>
     </li>
   );
 }
