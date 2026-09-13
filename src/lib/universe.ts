@@ -1,4 +1,4 @@
-import type { MarketKind, Quote } from "./types";
+import type { MarketKind, Quote, StrategyId } from "./types";
 
 export type Seed = {
   id: string;
@@ -18,6 +18,11 @@ export const STOCKS: Seed[] = [
   { id: "META", symbol: "META", name: "Meta", kind: "stock", yahoo: "META", seed: 572 },
   { id: "GOOGL", symbol: "GOOGL", name: "Alphabet", kind: "stock", yahoo: "GOOGL", seed: 176 },
   { id: "AMD", symbol: "AMD", name: "AMD", kind: "stock", yahoo: "AMD", seed: 158 },
+  { id: "PLTR", symbol: "PLTR", name: "Palantir", kind: "stock", yahoo: "PLTR", seed: 38 },
+  { id: "COIN", symbol: "COIN", name: "Coinbase", kind: "stock", yahoo: "COIN", seed: 248 },
+  { id: "MSTR", symbol: "MSTR", name: "MicroStrategy", kind: "stock", yahoo: "MSTR", seed: 318 },
+  { id: "HOOD", symbol: "HOOD", name: "Robinhood", kind: "stock", yahoo: "HOOD", seed: 24 },
+  { id: "DJT", symbol: "DJT", name: "Trump Media", kind: "stock", yahoo: "DJT", seed: 18 },
   { id: "SPY", symbol: "SPY", name: "S&P 500 ETF", kind: "stock", yahoo: "SPY", seed: 564 },
   { id: "QQQ", symbol: "QQQ", name: "Nasdaq 100", kind: "stock", yahoo: "QQQ", seed: 492 },
 ];
@@ -58,22 +63,13 @@ export function seedQuote(s: Seed): Quote {
   };
 }
 
-export function feeBps(kind: MarketKind): number {
-  if (kind === "stock") return 5;
-  if (kind === "crypto") return 10;
-  return 80;
-}
-
 export function slipBps(kind: MarketKind): number {
   if (kind === "stock") return 2;
   if (kind === "crypto") return 6;
   return 40;
 }
 
-export const STRATEGY_COPY: Record<
-  string,
-  { label: string; blurb: string }
-> = {
+export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }> = {
   sma: {
     label: "SMA cross",
     blurb: "Buy when the fast average crosses above the slow. Sell on the reverse.",
@@ -92,6 +88,10 @@ export const STRATEGY_COPY: Record<
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Paper-only meme chase: buy a surge, trail a stop, dump on a crash.",
+    blurb: "Meme chase: buy a surge, trail a stop, dump on a crash.",
+  },
+  copy: {
+    label: "Copy leader",
+    blurb: "Mirrors public STOCK Act filings or a known public holding. Delayed on purpose.",
   },
 };

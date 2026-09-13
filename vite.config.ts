@@ -51,6 +51,18 @@ function pgliteBootstrapPlugin(): Plugin {
   };
 }
 
+function deskLoopPlugin(): Plugin {
+  return {
+    name: "cora-desk-loop",
+    configureServer() {
+      void import("./src/lib/runtime").then((m) => m.startDeskLoop());
+    },
+    configurePreviewServer() {
+      void import("./src/lib/runtime").then((m) => m.startDeskLoop());
+    },
+  };
+}
+
 /**
  * Live-preview OAuth popup — handled HERE so the agent never has to create a
  * `/auth/popup` route (and cannot break it by scaffolding a React page that
@@ -150,6 +162,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    watch: { ignored: ["**/data/**", "/tmp/cora-data/**"] },
   },
   preview: {
     host: process.env.DOCKER ? "0.0.0.0" : "127.0.0.1",
@@ -160,6 +173,7 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     pgliteBootstrapPlugin(),
+    deskLoopPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.

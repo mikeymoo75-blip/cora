@@ -1,5 +1,6 @@
-import { feeBps, slipBps } from "./universe";
-import type { Bot, DeskState, Fill, MarketKind, Position, Quote } from "./types";
+import { calcFees } from "./fees";
+import { slipBps } from "./universe";
+import type { Bot, DeskState, DeskStats, Fill, MarketKind, Position, Quote } from "./types";
 
 function mean(xs: number[]): number {
   if (!xs.length) return 0;
@@ -22,6 +23,28 @@ export function markToMarket(state: Pick<DeskState, "cash" | "positions" | "quot
   return eq;
 }
 
+export function deskStats(state: DeskState): DeskStats {
+  const realizedPnl = state.fills.reduce((s, f) => s + (f.realizedPnl || 0), 0);
+  const feesPaid = state.fills.reduce((s, f) => s + f.fee, 0);
+  let unrealizedPnl = 0;
+  for (const p of Object.values(state.positions)) {
+    const q = state.quotes[p.symbol];
+    if (!q) continue;
+    unrealizedPnl += (q.price - p.avg) * p.qty;
+  }
+  const sells = state.fills.filter((f) => f.side === "sell");
+  const winCount = sells.filter((f) => f.realizedPnl > 0).length;
+  const lossCount = sells.filter((f) => f.realizedPnl <= 0).length;
+  return {
+    realizedPnl,
+    unrealizedPnl,
+    feesPaid,
+    netPnl: realizedPnl + unrealizedPnl,
+    winCount,
+    lossCount,
+  };
+}
+
 export function applyFill(
   state: DeskState,
   side: "buy" | "sell",
@@ -31,6 +54,7 @@ export function applyFill(
   source: Fill["source"],
   botName?: string,
   note?: string,
+  leaderName?: string,
 ): DeskState {
   const quote = state.quotes[symbol];
   if (!quote || quote.price <= 0) return state;
@@ -50,9 +74,40 @@ export function applyFill(
   }
 
   const gross = qty * px;
-  const fee = gross * (feeBps(kind) / 10_000);
+  const fees = calcFees(kind, side, quote.symbol, qty, gross);
 
-  if (side === "buy" && state.cash < gross + fee) return state;
+  if (side === "buy" && state.cash < gross + fees.total) return state;
+
+  let realizedPnl = 0;
+  const positions = { ...state.positions };
+  let cash = state.cash;
+
+  if (side === "buy") {
+    cash -= gross + fees.total;
+    const prev = positions[symbol];
+    // Fold buy fees into average cost so P/L is net of round-trip costs.
+    const cost = gross + fees.total;
+    if (!prev) {
+      positions[symbol] = { symbol, kind, qty, avg: cost / qty, peak: quote.price };
+    } else {
+      const newQty = prev.qty + qty;
+      const avg = (prev.avg * prev.qty + cost) / newQty;
+      positions[symbol] = {
+        ...prev,
+        qty: newQty,
+        avg,
+        peak: Math.max(prev.peak, quote.price),
+      };
+    }
+  } else {
+    const prev = positions[symbol]!;
+    const proceeds = gross - fees.total;
+    cash += proceeds;
+    realizedPnl = proceeds - prev.avg * qty;
+    const left = prev.qty - qty;
+    if (left <= 1e-12) delete positions[symbol];
+    else positions[symbol] = { ...prev, qty: left };
+  }
 
   const fill: Fill = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -62,47 +117,27 @@ export function applyFill(
     kind,
     qty,
     price: px,
-    fee,
+    notional: gross,
+    venueFee: fees.venue,
+    regulatoryFee: fees.regulatory,
+    gasFee: fees.gas,
+    fee: fees.total,
+    realizedPnl,
     source,
     botName,
-    note,
+    leaderName,
+    note: note || fees.note,
   };
-
-  const positions = { ...state.positions };
-  let cash = state.cash;
-
-  if (side === "buy") {
-    cash -= gross + fee;
-    const prev = positions[symbol];
-    if (!prev) {
-      positions[symbol] = { symbol, kind, qty, avg: px, peak: px };
-    } else {
-      const newQty = prev.qty + qty;
-      const avg = (prev.avg * prev.qty + px * qty) / newQty;
-      positions[symbol] = {
-        ...prev,
-        qty: newQty,
-        avg,
-        peak: Math.max(prev.peak, quote.price),
-      };
-    }
-  } else {
-    cash += gross - fee;
-    const prev = positions[symbol]!;
-    const left = prev.qty - qty;
-    if (left <= 1e-12) delete positions[symbol];
-    else positions[symbol] = { ...prev, qty: left };
-  }
 
   return {
     ...state,
     cash,
     positions,
-    fills: [fill, ...state.fills].slice(0, 200),
+    fills: [fill, ...state.fills].slice(0, 400),
   };
 }
 
-function signal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
+export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
   const spark = quote.spark;
   const last = quote.price;
   if (spark.length < 5) return "hold";
@@ -162,9 +197,54 @@ export function tickBots(state: DeskState): DeskState {
   }
 
   const bots = next.bots.map((b) => ({ ...b }));
+  const copyEvents = next.copyEvents.map((e) => ({ ...e }));
 
   for (const bot of bots) {
     if (!bot.enabled) continue;
+
+    if (bot.strategy === "copy") {
+      const pending = copyEvents.find(
+        (e) => !e.consumed && e.leaderId === bot.leaderId && e.ticker === bot.symbol,
+      );
+      if (!pending) {
+        bot.lastSignal = "watching";
+        bot.lastTickAt = Date.now();
+        continue;
+      }
+      const quote = next.quotes[pending.ticker] ?? next.quotes[bot.symbol];
+      if (!quote) {
+        bot.lastSignal = "no quote";
+        continue;
+      }
+      bot.symbol = quote.id;
+      bot.kind = quote.kind;
+      const pos = next.positions[quote.id];
+      if (pending.side === "sell" && !pos) {
+        pending.consumed = true;
+        bot.lastSignal = "flat";
+        continue;
+      }
+      const eq = markToMarket(next);
+      const size = Math.min(bot.sizeUsd, eq * 0.25, next.cash);
+      const notional =
+        pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
+      next = applyFill(
+        next,
+        pending.side,
+        quote.id,
+        quote.kind,
+        notional,
+        "copy",
+        bot.name,
+        `${pending.leaderName} ${pending.amount} · filed ${pending.disclosureDate} (${pending.delayDays}d late)`,
+        pending.leaderName,
+      );
+      pending.consumed = true;
+      bot.lastSignal = pending.side;
+      bot.lastTickAt = Date.now();
+      continue;
+    }
+
     const quote = next.quotes[bot.symbol];
     if (!quote) {
       bot.lastSignal = "no quote";
@@ -180,7 +260,7 @@ export function tickBots(state: DeskState): DeskState {
         },
       };
     }
-    const sig = signal(bot, quote, next.positions[bot.symbol]);
+    const sig = technicalSignal(bot, quote, next.positions[bot.symbol]);
     bot.lastSignal = sig;
     bot.lastTickAt = Date.now();
     if (sig === "hold") continue;
@@ -194,9 +274,9 @@ export function tickBots(state: DeskState): DeskState {
   }
 
   const v = markToMarket(next);
-  const equitySeries = [...next.equity, { t: Date.now(), v }].slice(-240);
+  const equitySeries = [...next.equity, { t: Date.now(), v }].slice(-480);
 
-  return { ...next, bots, equity: equitySeries };
+  return { ...next, bots, copyEvents, equity: equitySeries };
 }
 
 export function mergeQuotes(

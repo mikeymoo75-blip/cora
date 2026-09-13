@@ -28,6 +28,20 @@ export function qtyFmt(n: number): string {
   return n.toPrecision(4);
 }
 
+export function day(ts: number | string): string {
+  const d = typeof ts === "number" ? new Date(ts) : new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function ago(ts: number): string {
+  if (!ts) return "never";
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  return `${Math.round(s / 3600)}h ago`;
+}
+
 export function clock(ts: number): string {
   return new Date(ts).toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -35,3 +49,5 @@ export function clock(ts: number): string {
     second: "2-digit",
   });
 }
+
+

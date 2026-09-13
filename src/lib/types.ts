@@ -1,6 +1,6 @@
 export type MarketKind = "stock" | "crypto" | "pump";
 
-export type StrategyId = "sma" | "meanrev" | "momentum" | "dca" | "sniper";
+export type StrategyId = "sma" | "meanrev" | "momentum" | "dca" | "sniper" | "copy";
 
 export type Quote = {
   id: string;
@@ -22,6 +22,8 @@ export type Position = {
   peak: number;
 };
 
+export type FillSource = "manual" | "bot" | "copy";
+
 export type Fill = {
   id: string;
   ts: number;
@@ -30,9 +32,15 @@ export type Fill = {
   kind: MarketKind;
   qty: number;
   price: number;
+  notional: number;
+  venueFee: number;
+  regulatoryFee: number;
+  gasFee: number;
   fee: number;
-  source: "manual" | "bot";
+  realizedPnl: number;
+  source: FillSource;
   botName?: string;
+  leaderName?: string;
   note?: string;
 };
 
@@ -44,11 +52,35 @@ export type Bot = {
   kind: MarketKind;
   strategy: StrategyId;
   sizeUsd: number;
+  leaderId?: string;
   lastSignal: string;
   lastTickAt: number;
 };
 
+export type CopyEvent = {
+  id: string;
+  leaderId: string;
+  leaderName: string;
+  ticker: string;
+  side: "buy" | "sell";
+  tradeDate: string;
+  disclosureDate: string;
+  amount: string;
+  delayDays: number;
+  consumed: boolean;
+  note: string;
+};
+
 export type EquityPoint = { t: number; v: number };
+
+export type DeskStats = {
+  realizedPnl: number;
+  unrealizedPnl: number;
+  feesPaid: number;
+  netPnl: number;
+  winCount: number;
+  lossCount: number;
+};
 
 export type DeskState = {
   cash: number;
@@ -62,7 +94,13 @@ export type DeskState = {
   positions: Record<string, Position>;
   fills: Fill[];
   bots: Bot[];
+  copyEvents: CopyEvent[];
+  copyFetchedAt: number;
   equity: EquityPoint[];
   selectedId: string;
   liveQuotes: boolean;
+  loopAt: number;
+  loopOk: boolean;
 };
+
+export type DeskSnapshot = DeskState & { stats: DeskStats; equityNow: number };
