@@ -59,3 +59,19 @@ export function calcFees(
     note: "Pump.fun 1% + Solana gas",
   };
 }
+
+/** Round-trip cost. Skip a buy if fees would eat more than 2.5% of the ticket. */
+export function roundTripFee(
+  kind: MarketKind,
+  symbol: string,
+  notional: number,
+): number {
+  const buy = calcFees(kind, "buy", symbol, 1, notional);
+  const sell = calcFees(kind, "sell", symbol, 1, notional);
+  return buy.total + sell.total;
+}
+
+export function feeWouldEat(kind: MarketKind, symbol: string, notional: number): boolean {
+  if (notional <= 0) return true;
+  return roundTripFee(kind, symbol, notional) > notional * 0.025;
+}

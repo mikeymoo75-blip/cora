@@ -20,6 +20,7 @@ export type Position = {
   qty: number;
   avg: number;
   peak: number;
+  openedAt: number;
 };
 
 export type FillSource = "manual" | "bot" | "copy";
@@ -62,6 +63,7 @@ export type Bot = {
   lastSignal: string;
   lastTickAt: number;
   lastReason: string;
+  lastSold?: Record<string, number>;
 };
 
 export type CopyEvent = {

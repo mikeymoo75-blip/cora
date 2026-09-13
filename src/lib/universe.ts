@@ -81,7 +81,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   meanrev: {
     label: "Buy the dip",
-    blurb: "Buys when price is stretched down vs recent range. Sells when it bounces back.",
+    blurb: "Buys a real dip, holds at least 20 minutes, and skips coins where gas would eat the trade. Does not scalp noise.",
   },
   momentum: {
     label: "Ride the move",
@@ -89,7 +89,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   dca: {
     label: "Dip buyer",
-    blurb: "Buys a set dollar amount when price is below its recent average. Sells around +6%.",
+    blurb: "Buys a set dollar amount when price is below its recent average. Holds 20 minutes. Sells around +6% or a 5% stop.",
   },
   sniper: {
     label: "Pump sniper",

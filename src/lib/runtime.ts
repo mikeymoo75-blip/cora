@@ -72,7 +72,7 @@ function defaultBots(): Bot[] {
       maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
-      lastReason: "",
+      lastReason: "Holds 20 min, skips BTC/ETH at this ticket size — gas would eat the trade.",
     },
     {
       id: "bot-scan-pump",
@@ -206,6 +206,12 @@ function load(): DeskState {
       ...f,
       reason: f.reason || f.note || "",
     }));
+    const positions = Object.fromEntries(
+      Object.entries(parsed.positions || {}).map(([k, p]) => [
+        k,
+        { ...p, openedAt: p.openedAt || Date.now() },
+      ]),
+    );
 
     // Old $100k paper book → $1,000 bank, sized like real money.
     if ((parsed.startingCash ?? 0) >= 10_000) {
@@ -263,6 +269,7 @@ function load(): DeskState {
       runStartedAt: parsed.runStartedAt || Date.now(),
       manualLocks: parsed.manualLocks || {},
       fills,
+      positions,
       reports: parsed.reports || [],
     });
   } catch {

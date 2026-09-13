@@ -1,4 +1,4 @@
-import { calcFees } from "./fees";
+import { calcFees, feeWouldEat } from "./fees";
 import { slipBps } from "./universe";
 import type {
   Bot,
@@ -191,8 +191,8 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The short-term average dropped back under the longer-term average, so the uptrend looks done.",
     },
     meanrev: {
-      buy: "Price is stretched well below its recent range, so the bot is buying a dip.",
-      sell: "Price bounced back toward the middle of its recent range, so the bot is taking the bounce.",
+      buy: "Price is stretched well below its recent range, so the bot is buying a dip — and will hold at least 20 minutes.",
+      sell: "The dip either bounced enough to cover fees, hit a 5% stop, or sat long enough to give up.",
     },
     momentum: {
       buy: "Price jumped about 1.4% in the last few ticks, so the bot is riding strength.",
@@ -265,7 +265,7 @@ export function applyFill(
     const prev = positions[symbol];
     const cost = gross + fees.total;
     if (!prev) {
-      positions[symbol] = { symbol, kind, qty, avg: cost / qty, peak: quote.price };
+      positions[symbol] = { symbol, kind, qty, avg: cost / qty, peak: quote.price, openedAt: Date.now() };
     } else {
       const newQty = prev.qty + qty;
       const avg = (prev.avg * prev.qty + cost) / newQty;
@@ -274,6 +274,7 @@ export function applyFill(
         qty: newQty,
         avg,
         peak: Math.max(prev.peak, quote.price),
+        openedAt: prev.openedAt || Date.now(),
       };
     }
     if (source === "manual") delete manualLocks[symbol];
@@ -394,32 +395,50 @@ export function whyTrade(bot: Bot, quote: Quote, side: "buy" | "sell"): string {
 export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
   const spark = quote.spark;
   const last = quote.price;
-  if (spark.length < 5) return "hold";
+  if (spark.length < 8 || last <= 0) return "hold";
 
   const fast = mean(spark.slice(-5));
   const slow = mean(spark.slice(-20));
   const window = spark.slice(-20);
   const sd = stdev(window);
-  const z = sd ? (last - mean(window)) / sd : 0;
+  const mid = mean(window);
+  if (mid <= 0) return "hold";
+  const z = sd ? (last - mid) / sd : 0;
+  const vol = sd / mid;
   const ret8 =
     spark.length >= 9 ? ((last - spark[spark.length - 9]!) / spark[spark.length - 9]!) * 100 : 0;
+  const heldMs = pos?.openedAt ? Date.now() - pos.openedAt : 0;
+  const fromEntry = pos ? ((last - pos.avg) / pos.avg) * 100 : 0;
+  const minHold = bot.strategy === "meanrev" || bot.strategy === "dca" ? 20 * 60 * 1000 : 10 * 60 * 1000;
 
   switch (bot.strategy) {
     case "sma":
-      if (fast > slow * 1.001 && !pos) return "buy";
-      if (fast < slow * 0.999 && pos) return "sell";
+      if (fast > slow * 1.004 && !pos && vol > 0.001) return "buy";
+      if (pos && fromEntry <= -5) return "sell";
+      if (pos && heldMs >= minHold && fast < slow * 0.996) return "sell";
       return "hold";
     case "meanrev":
-      if (z < -1.15 && !pos) return "buy";
-      if ((z > 0.4 || z > 1.15) && pos) return "sell";
+      if (vol < 0.003) return "hold";
+      if (z < -1.6 && last < mid * 0.99 && !pos) return "buy";
+      if (!pos) return "hold";
+      if (fromEntry <= -5) return "sell";
+      if (heldMs < minHold) return "hold";
+      if (fromEntry >= 3 && z > 0.6) return "sell";
+      if (heldMs > 3 * 60 * 60 * 1000 && z > 0) return "sell";
       return "hold";
     case "momentum":
-      if (ret8 > 1.4 && !pos) return "buy";
-      if ((ret8 < -0.8 || (pos && last > pos.avg * 1.04)) && pos) return "sell";
+      if (ret8 > 2.2 && !pos) return "buy";
+      if (!pos) return "hold";
+      if (fromEntry <= -4) return "sell";
+      if (heldMs < minHold) return "hold";
+      if (ret8 < -1.2 || fromEntry >= 5) return "sell";
       return "hold";
     case "dca":
-      if (last < slow && !pos) return "buy";
-      if (pos && last > pos.avg * 1.06) return "sell";
+      if (last < slow * 0.985 && !pos) return "buy";
+      if (!pos) return "hold";
+      if (fromEntry <= -5) return "sell";
+      if (heldMs < minHold) return "hold";
+      if (last > pos.avg * 1.06) return "sell";
       return "hold";
     default:
       return "hold";
@@ -573,10 +592,13 @@ export function tickBots(state: DeskState): DeskState {
           bot.lastReason = next.wallets.core.haltReason;
           break;
         }
-        bot.symbol = quote.id;
-        bot.kind = quote.kind;
         const eq = walletEquity(next, "core");
         const size = Math.min(bot.sizeUsd, eq * 0.08, next.wallets.core.cash);
+        if (pending.side === "buy" && feeWouldEat(quote.kind, quote.symbol, size)) {
+          pending.consumed = true;
+          bot.lastReason = `Skipped ${pending.ticker}: network fees would eat a $${size.toFixed(0)} ticket.`;
+          continue;
+        }
         const notional = pending.side === "sell" ? (pos?.qty ?? 0) * quote.price : size;
         const delayBit = pending.delayDays ? ` — ${pending.delayDays} days after the real trade` : "";
         const reason =
@@ -600,6 +622,7 @@ export function tickBots(state: DeskState): DeskState {
         bot.lastReason = reason;
         bot.lastTickAt = Date.now();
         if (pending.side === "buy") held += 1;
+        if (pending.side === "sell") bot.lastSold = { ...(bot.lastSold || {}), [quote.id]: Date.now() };
         acted = true;
       }
       if (!acted && !bot.lastReason) {
@@ -652,6 +675,7 @@ export function tickBots(state: DeskState): DeskState {
       );
       bot.lastSignal = "sell";
       bot.lastReason = reason;
+      bot.lastSold = { ...(bot.lastSold || {}), [sym]: Date.now() };
       acted = true;
     }
 
@@ -664,11 +688,17 @@ export function tickBots(state: DeskState): DeskState {
       if (quote.kind === "stock" && !rth) continue;
       const wid = walletIdFor(quote.kind);
       if (next.wallets[wid].halted) continue;
+      const coolUntil = bot.lastSold?.[quote.id] ?? 0;
+      if (Date.now() < coolUntil + 30 * 60 * 1000) continue;
       const sig = pickSignal(bot, quote, undefined);
       if (sig !== "buy") continue;
       const eq = walletEquity(next, wid);
       const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
       if (size < 5) continue;
+      if (feeWouldEat(quote.kind, quote.symbol, size)) {
+        bot.lastReason = `Skipped ${quote.symbol}: network fees would eat a $${size.toFixed(0)} ticket.`;
+        continue;
+      }
       const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
       next = applyFill(
         next,
