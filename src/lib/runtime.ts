@@ -75,12 +75,26 @@ function defaultBots(): Bot[] {
     },
     {
       id: "bot-scan-pump",
-      name: "Scan Pump.fun",
+      name: "Scan Pump.fun · sniper",
       enabled: false,
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
-      sizeUsd: 600,
+      sizeUsd: 500,
+      scope: "pump",
+      maxNames: 3,
+      lastSignal: "idle",
+      lastTickAt: 0,
+      lastReason: "",
+    },
+    {
+      id: "bot-scan-pump-scalp",
+      name: "Scan Pump.fun · scalp",
+      enabled: false,
+      symbol: "pump:CORA",
+      kind: "pump",
+      strategy: "scalp",
+      sizeUsd: 400,
       scope: "pump",
       maxNames: 3,
       lastSignal: "idle",
@@ -171,6 +185,11 @@ function load(): DeskState {
         ...base.bots.filter((b) => b.strategy !== "copy"),
         ...bots.filter((b) => b.strategy === "copy" || !stale.has(b.id)),
       ];
+    }
+    const haveIds = new Set(bots.map((b) => b.id));
+    for (const b of base.bots) {
+      if (b.strategy === "copy") continue;
+      if (!haveIds.has(b.id)) bots.push(b);
     }
     return {
       ...base,

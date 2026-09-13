@@ -87,8 +87,12 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
     blurb: "Buys a set dollar amount when price is below its recent average. Sells around +6%.",
   },
   sniper: {
-    label: "Pump chase",
-    blurb: "Buys a sharp pump. Sells if it dumps from the peak or from your entry.",
+    label: "Pump sniper",
+    blurb: "Pump.fun only. Buys heat near the highs. Trails a tight stop. Never buys a dump.",
+  },
+  scalp: {
+    label: "Pump scalp",
+    blurb: "Pump.fun only. In on a pop, out at about +12% or a small drop. Does not sit through rugs.",
   },
   copy: {
     label: "Copy a person",
@@ -111,10 +115,10 @@ export const SCOPE_COPY: Record<ScanScope, { label: string; blurb: string }> = {
   },
   pump: {
     label: "Scan Pump.fun",
-    blurb: "Looks through the live Pump.fun coins for a chase or a dump.",
+    blurb: "Uses Pump.fun rules only — tight stops, fast exits, no dip-buying.",
   },
   all: {
     label: "Scan everything",
-    blurb: "Stocks, crypto, and Pump.fun in one bot.",
+    blurb: "Stocks and crypto use the rule you pick. Pump.fun coins still use the volatile pump rules.",
   },
 };

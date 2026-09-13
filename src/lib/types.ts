@@ -1,6 +1,6 @@
 export type MarketKind = "stock" | "crypto" | "pump";
 
-export type StrategyId = "sma" | "meanrev" | "momentum" | "dca" | "sniper" | "copy";
+export type StrategyId = "sma" | "meanrev" | "momentum" | "dca" | "sniper" | "scalp" | "copy";
 
 export type Quote = {
   id: string;

@@ -551,6 +551,11 @@ function BotsPane({
   const [size, setSize] = useState(2000);
   const stratBots = desk.bots.filter((b) => b.strategy !== "copy");
   const selectedQuote = quotes.find((q) => q.id === symbol) ?? quotes[0];
+  const pumpStrats: StrategyId[] = ["sniper", "scalp"];
+  const bookStrats: StrategyId[] = ["sma", "meanrev", "momentum", "dca"];
+  const stratOptions =
+    scope === "pump" ? pumpStrats : scope === "all" ? [...bookStrats, ...pumpStrats] : bookStrats;
+  const activeStrategy = stratOptions.includes(strategy) ? strategy : stratOptions[0]!;
   const maxNames = scope === "one" ? 1 : scope === "pump" ? 3 : scope === "all" ? 6 : 4;
 
   return (
@@ -563,7 +568,7 @@ function BotsPane({
         <p className="mb-3 text-xs leading-relaxed text-muted">
           Scan bots look through every matching name each pass, buy what fits the
           rule, and sell what no longer does. They will not stack two bots on the
-          same ticker.
+          same ticker. Pump.fun never uses stock rules — tight stops, no dip-buying.
         </p>
         <Scoreboard scores={desk.scores.filter((s) => stratBots.some((b) => b.id === s.botId))} />
         <ul className="mt-4 space-y-2">
@@ -615,7 +620,7 @@ function BotsPane({
           onAdd({
             name,
             symbol: selectedQuote?.id || "SPY",
-            strategy,
+            strategy: activeStrategy,
             sizeUsd: size,
             scope,
             maxNames,
@@ -655,19 +660,17 @@ function BotsPane({
           </select>
         )}
         <select
-          value={strategy}
+          value={activeStrategy}
           onChange={(e) => setStrategy(e.target.value as StrategyId)}
           className="min-h-11 w-full rounded-md bg-elevated px-3 text-sm outline-none"
         >
-          {(Object.keys(STRATEGY_COPY) as StrategyId[])
-            .filter((k) => k !== "copy")
-            .map((k) => (
-              <option key={k} value={k}>
-                {STRATEGY_COPY[k].label}
-              </option>
-            ))}
+          {stratOptions.map((k) => (
+            <option key={k} value={k}>
+              {STRATEGY_COPY[k].label}
+            </option>
+          ))}
         </select>
-        <p className="text-xs leading-relaxed text-muted">{STRATEGY_COPY[strategy]?.blurb}</p>
+        <p className="text-xs leading-relaxed text-muted">{STRATEGY_COPY[activeStrategy]?.blurb}</p>
         <input
           type="number"
           min={50}

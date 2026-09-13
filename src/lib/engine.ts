@@ -91,8 +91,12 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The position is up about 6% from cost, so the bot is cashing in.",
     },
     sniper: {
-      buy: "This coin is ripping (about +6%), so the bot is chasing the move.",
-      sell: "It dumped from the peak or from the entry, so the bot is getting out.",
+      buy: "Pump.fun sniper: the coin is ripping and still near its highs. Tight stop — these can go to zero.",
+      sell: "Pump.fun sniper exit: it dumped off the peak, hit the hard stop, or the tape flipped. No averaging down.",
+    },
+    scalp: {
+      buy: "Pump.fun scalp: a short pop. This bot wants a quick hit, not a hold.",
+      sell: "Pump.fun scalp exit: took about +12%, or a small drop hit. Out before a rug.",
     },
     copy: {
       buy: "The person this bot follows filed a public purchase.",
@@ -198,6 +202,69 @@ export function applyFill(
   };
 }
 
+function ticksFalling(spark: number[], n: number): boolean {
+  if (spark.length < n + 1) return false;
+  const slice = spark.slice(-(n + 1));
+  for (let i = 1; i < slice.length; i++) {
+    if ((slice[i] ?? 0) >= (slice[i - 1] ?? 0)) return false;
+  }
+  return true;
+}
+
+/** Pump.fun is not a stock. No dip-buying, tight trail, fast take-profit. */
+export function pumpSignal(
+  quote: Quote,
+  pos: Position | undefined,
+  style: "sniper" | "scalp",
+): "buy" | "sell" | "hold" {
+  const spark = quote.spark;
+  const last = quote.price;
+  if (spark.length < 4 || last <= 0) return "hold";
+
+  const recent = spark.slice(style === "scalp" ? -4 : -6);
+  const recentHigh = Math.max(...recent);
+  const rising = last > (spark[spark.length - 3] ?? last);
+  const nearHigh = last >= recentHigh * (style === "scalp" ? 0.98 : 0.97);
+  const alreadyDumping = last < recentHigh * 0.92 || quote.changePct < 0;
+
+  if (pos) {
+    const fromPeak = ((last - pos.peak) / pos.peak) * 100;
+    const fromEntry = ((last - pos.avg) / pos.avg) * 100;
+    if (style === "scalp") {
+      if (fromPeak <= -4 || fromEntry <= -8 || fromEntry >= 12) return "sell";
+      if (quote.changePct < -8 || ticksFalling(spark, 3)) return "sell";
+    } else {
+      if (fromPeak <= -7 || fromEntry <= -12 || fromEntry >= 28) return "sell";
+      if (quote.changePct < -10 || ticksFalling(spark, 4)) return "sell";
+    }
+    return "hold";
+  }
+
+  if (alreadyDumping || !rising || !nearHigh) return "hold";
+  if (style === "scalp" && quote.changePct > 5) return "buy";
+  if (style === "sniper" && quote.changePct > 8) return "buy";
+  return "hold";
+}
+
+export function pickSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
+  if (quote.kind === "pump") {
+    return pumpSignal(quote, pos, bot.strategy === "scalp" ? "scalp" : "sniper");
+  }
+  if (bot.strategy === "sniper" || bot.strategy === "scalp") {
+    return technicalSignal({ ...bot, strategy: "momentum" }, quote, pos);
+  }
+  return technicalSignal(bot, quote, pos);
+}
+
+export function whyTrade(bot: Bot, quote: Quote, side: "buy" | "sell"): string {
+  if (quote.kind === "pump") {
+    return whySignal(bot.strategy === "scalp" ? "scalp" : "sniper", side);
+  }
+  const strat =
+    bot.strategy === "sniper" || bot.strategy === "scalp" ? "momentum" : bot.strategy;
+  return whySignal(strat, side);
+}
+
 export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
   const spark = quote.spark;
   const last = quote.price;
@@ -228,15 +295,6 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
       if (last < slow && !pos) return "buy";
       if (pos && last > pos.avg * 1.06) return "sell";
       return "hold";
-    case "sniper": {
-      if (quote.changePct > 6 && !pos) return "buy";
-      if (pos) {
-        const fromPeak = ((last - pos.peak) / pos.peak) * 100;
-        const fromEntry = ((last - pos.avg) / pos.avg) * 100;
-        if (fromPeak < -12 || fromEntry < -18 || quote.changePct < -10) return "sell";
-      }
-      return "hold";
-    }
     default:
       return "hold";
   }
@@ -393,10 +451,10 @@ export function tickBots(state: DeskState): DeskState {
           [sym]: { ...pos, peak: Math.max(pos.peak, quote.price) },
         },
       };
-      const sig = technicalSignal(bot, quote, next.positions[sym]);
+      const sig = pickSignal(bot, quote, next.positions[sym]);
       if (sig !== "sell") continue;
       const notional = pos.qty * quote.price;
-      const reason = `${quote.symbol}: ${whySignal(bot.strategy, "sell")}`;
+      const reason = `${quote.symbol}: ${whyTrade(bot, quote, "sell")}`;
       next = applyFill(
         next,
         "sell",
@@ -420,12 +478,12 @@ export function tickBots(state: DeskState): DeskState {
       if (held >= maxNames) break;
       if (next.positions[quote.id]) continue;
       if (quote.kind === "stock" && !rth) continue;
-      const sig = technicalSignal(bot, quote, undefined);
+      const sig = pickSignal(bot, quote, undefined);
       if (sig !== "buy") continue;
       const eq = markToMarket(next);
       const size = Math.min(bot.sizeUsd, eq * 0.2, next.cash);
       if (size < 10) break;
-      const reason = `${quote.symbol}: ${whySignal(bot.strategy, "buy")}`;
+      const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
       next = applyFill(
         next,
         "buy",
