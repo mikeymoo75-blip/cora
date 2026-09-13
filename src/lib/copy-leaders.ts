@@ -44,7 +44,7 @@ export const COPY_LEADERS: CopyLeader[] = [
     role: "Hyperliquid",
     kind: "crypto-top",
     needles: [],
-    blurb: "Top Hyperliquid wallet by 30-day PnL. We copy majors they are long. Not Pump.fun, not shorts.",
+    blurb: "Highest Hyperliquid wallet by 30-day PnL. We copy majors they are long. Not Pump.fun, not shorts.",
   },
   {
     id: "hl-2",
@@ -52,7 +52,7 @@ export const COPY_LEADERS: CopyLeader[] = [
     role: "Hyperliquid",
     kind: "crypto-top",
     needles: [],
-    blurb: "Second Hyperliquid wallet by 30-day PnL. Paper longs only — we skip shorts and memecoins we cannot quote.",
+    blurb: "2nd Hyperliquid wallet by 30-day PnL. Paper longs only — skip shorts and coins we cannot quote.",
   },
   {
     id: "hl-3",
@@ -60,7 +60,23 @@ export const COPY_LEADERS: CopyLeader[] = [
     role: "Hyperliquid",
     kind: "crypto-top",
     needles: [],
-    blurb: "Third Hyperliquid wallet by 30-day PnL. Ranking and wallet change as the board updates.",
+    blurb: "3rd Hyperliquid wallet by 30-day PnL. Ranking updates as the board moves.",
+  },
+  {
+    id: "hl-4",
+    name: "Crypto whale #4",
+    role: "Hyperliquid",
+    kind: "crypto-top",
+    needles: [],
+    blurb: "4th Hyperliquid wallet by 30-day PnL. Paper longs only.",
+  },
+  {
+    id: "hl-5",
+    name: "Crypto whale #5",
+    role: "Hyperliquid",
+    kind: "crypto-top",
+    needles: [],
+    blurb: "5th Hyperliquid wallet by 30-day PnL. Paper longs only.",
   },
   {
     id: "pelosi",

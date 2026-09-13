@@ -791,6 +791,7 @@ function BotsPane({
   const [scope, setScope] = useState<ScanScope>("stock");
   const [size, setSize] = useState(25);
   const stratBots = desk.bots.filter((b) => b.strategy !== "copy");
+  const copyBots = desk.bots.filter((b) => b.strategy === "copy");
   const selectedQuote = quotes.find((q) => q.id === symbol) ?? quotes[0];
   const pumpStrats: StrategyId[] = ["sniper", "scalp"];
   const bookStrats: StrategyId[] = ["sma", "meanrev", "momentum", "dca"];
@@ -807,11 +808,10 @@ function BotsPane({
           <h2 className="text-sm font-semibold">Which bots are making money</h2>
         </div>
         <p className="mb-3 text-xs leading-relaxed text-muted">
-          Scan bots look through every matching name each pass, buy what fits the
-          rule, and sell what no longer does. They will not stack two bots on the
-          same ticker. Pump.fun never uses stock rules — tight stops, no dip-buying.
+          Scan bots look through matching names each pass. Elon, Congress, and Hyperliquid whales
+          are under Copy people below — also on the Copy tab. Leave one person On.
         </p>
-        <Scoreboard scores={desk.scores.filter((s) => stratBots.some((b) => b.id === s.botId))} />
+        <Scoreboard scores={desk.scores} />
         <ul className="mt-4 space-y-2">
           {stratBots.map((b) => {
             const score = desk.scores.find((s) => s.botId === b.id);
@@ -852,6 +852,38 @@ function BotsPane({
             );
           })}
         </ul>
+        {copyBots.length > 0 && (
+          <div className="mt-6">
+            <div className="mb-2 flex items-center gap-2">
+              <Users className="size-4 text-primary" />
+              <h2 className="text-sm font-semibold">Copy people</h2>
+            </div>
+            <p className="mb-2 text-xs text-muted">
+              Same On/Off as the Copy tab. Pick one whale or one person — not nine.
+            </p>
+            <ul className="space-y-2">
+              {copyBots.map((b) => {
+                const leader = COPY_LEADERS.find((l) => l.id === b.leaderId);
+                return (
+                  <li key={b.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-sm">{b.name.replace(/^Copy /, "")}</p>
+                        <p className="text-xs text-muted">
+                          {leader?.role || "Copy"} · {money(b.sizeUsd, 0)} per copy
+                        </p>
+                      </div>
+                      <OnOff on={b.enabled} onClick={() => onToggle(b.id)} />
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-muted">
+                      {b.lastReason || leader?.blurb || "Waiting for a public trade or holding."}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
       <form
         className="h-fit space-y-2 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]"
@@ -981,13 +1013,15 @@ function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: strin
       </div>
       <p className="rounded-lg bg-elevated px-3 py-2 text-xs leading-relaxed text-warn">
         Stocks: Buffett / ARKK / Ackman are public filings or ETF books — weeks to months late.
-        Crypto: Hyperliquid wallets ranked by 30-day PnL. We copy coins they are long, majors
-        only. Not Pump.fun, not their live clicks, not shorts.
+        Crypto: top 5 Hyperliquid wallets by 30-day PnL. We copy coins they are long.
+        Not Pump.fun, not their live clicks, not shorts. Turn one On, the rest Off.
       </p>
       {groups.map((g) => {
         const bots = copyBots.filter((b) => {
           const leader = COPY_LEADERS.find((l) => l.id === b.leaderId);
-          return leader && g.kinds.includes(leader.kind);
+          if (leader) return g.kinds.includes(leader.kind);
+          if (g.kinds.includes("crypto-top") && (b.leaderId || "").startsWith("hl-")) return true;
+          return false;
         });
         if (!bots.length) return null;
         return (

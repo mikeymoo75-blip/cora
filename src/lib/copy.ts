@@ -284,7 +284,7 @@ async function fetchHlPack(): Promise<{ events: CopyEvent[]; whales: WhaleSnap[]
       })
       .filter((r) => r.address && r.pnl > 0 && r.value > 50_000)
       .sort((a, b) => b.pnl - a.pnl)
-      .slice(0, 3);
+      .slice(0, 5);
 
     const books: { coins: string[]; ok: boolean }[] = [];
     for (const w of ranked) {
