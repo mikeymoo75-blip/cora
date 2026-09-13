@@ -15,10 +15,12 @@ export const loadDesk = createServerFn({ method: "POST" }).handler(
 );
 
 export const placeOrder = createServerFn({ method: "POST" })
-  .validator((input: { side: "buy" | "sell"; symbol: string; notional: number }) => input)
+  .validator(
+    (input: { side: "buy" | "sell"; symbol: string; notional: number; close?: boolean }) => input,
+  )
   .handler(async ({ data }): Promise<DeskSnapshot> => {
     const m = await rt();
-    return m.placeOrder(data.side, data.symbol, data.notional);
+    return m.placeOrder(data.side, data.symbol, data.notional, data.close === true);
   });
 
 export const toggleBot = createServerFn({ method: "POST" })

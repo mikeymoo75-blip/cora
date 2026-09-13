@@ -16,6 +16,7 @@ import {
   Search,
   Trash2,
   Users,
+  Wallet,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { Spark } from "@/components/spark";
@@ -23,7 +24,7 @@ import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, money, pct, qtyFmt } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
-import type { BotScore, DeskSnapshot, Fill, MarketKind, Quote, ScanScope, StrategyId } from "@/lib/types";
+import type { BotScore, DeskSnapshot, Fill, MarketKind, Position, Quote, ScanScope, StrategyId } from "@/lib/types";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 const TABS = ["Markets", "Bots", "Copy", "Log"] as const;
@@ -67,6 +68,32 @@ export function Desk() {
   const dayPnl = equity - desk.dayStartEquity;
   const botsOn = desk.bots.filter((b) => b.enabled).length;
   const last = desk.lastFill;
+  const holdings = Object.values(desk.positions);
+
+  const sellAll = (id: string) => {
+    const q = desk.quotes[id];
+    if (!desk.positions[id]) {
+      toast("Nothing to sell — you don't hold that");
+      return;
+    }
+    void remote.trade("sell", id, 0, true).then((next) => {
+      if (!next?.positions[id]) toast(`Sold all ${q?.symbol ?? id}`);
+      else toast("Could not sell");
+    });
+  };
+
+  const sellHalf = (id: string) => {
+    const p = desk.positions[id];
+    const q = desk.quotes[id];
+    if (!p || !q) {
+      toast("Nothing to sell");
+      return;
+    }
+    const notional = (p.qty * q.price) / 2;
+    void remote.trade("sell", id, notional).then(() => {
+      toast(`Sold half of ${q.symbol}`);
+    });
+  };
 
   return (
     <div className="min-h-dvh bg-bg text-fg">
@@ -179,6 +206,18 @@ export function Desk() {
         )}
       </header>
 
+      {holdings.length > 0 && (
+        <HoldingsStrip
+          desk={desk}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setTab("Markets");
+          }}
+          onSellAll={sellAll}
+          onSellHalf={sellHalf}
+        />
+      )}
+
       <nav className="flex gap-1 overflow-x-auto border-b border-border px-2 py-2">
         {TABS.map((t) => (
           <button
@@ -219,6 +258,8 @@ export function Desk() {
               });
             }}
             onSelect={setSelectedId}
+            holdings={desk.positions}
+            onSellAll={sellAll}
           />
           {selected && (
             <ChartAndTicket
@@ -226,9 +267,20 @@ export function Desk() {
               notional={notional}
               setNotional={setNotional}
               position={desk.positions[selected.id]}
-              onTrade={(side) => {
-                void remote.trade(side, selected.id, notional).then(() => {
-                  toast(side === "buy" ? `Bought ${selected.symbol}` : `Sold ${selected.symbol}`);
+              lockUntil={desk.manualLocks?.[selected.id] ?? 0}
+              onTrade={(side, close) => {
+                if (side === "sell" && !desk.positions[selected.id]) {
+                  toast("You don't hold this — nothing to sell");
+                  return;
+                }
+                void remote.trade(side, selected.id, notional, close).then((next) => {
+                  if (!next) {
+                    toast("Trade failed");
+                    return;
+                  }
+                  if (side === "buy") toast(`Bought ${selected.symbol}`);
+                  else if (close) toast(`Sold all ${selected.symbol}`);
+                  else toast(`Sold ${selected.symbol}`);
                 });
               }}
               equity={desk.equity}
@@ -256,7 +308,9 @@ export function Desk() {
         />
       )}
 
-      {tab === "Log" && <LogPane desk={desk} />}
+      {tab === "Log" && (
+        <LogPane desk={desk} onSelect={setSelectedId} onSellAll={sellAll} onOpenMarkets={() => setTab("Markets")} />
+      )}
     </div>
   );
 }
@@ -287,6 +341,76 @@ function Pill({
   );
 }
 
+function HoldingsStrip({
+  desk,
+  onSelect,
+  onSellAll,
+  onSellHalf,
+}: {
+  desk: DeskSnapshot;
+  onSelect: (id: string) => void;
+  onSellAll: (id: string) => void;
+  onSellHalf: (id: string) => void;
+}) {
+  const rows = Object.values(desk.positions);
+  return (
+    <section className="border-b border-border bg-surface px-4 py-3 md:px-6">
+      <div className="mb-2 flex items-center gap-2">
+        <Wallet className="size-3.5 text-primary" />
+        <p className="text-xs font-medium">
+          Your positions · sell any time, no bot needed
+        </p>
+      </div>
+      <ul className="flex gap-2 overflow-x-auto pb-1">
+        {rows.map((p) => {
+          const q = desk.quotes[p.symbol];
+          const mark = q?.price ?? p.avg;
+          const mtm = (mark - p.avg) * p.qty;
+          const value = p.qty * mark;
+          return (
+            <li
+              key={p.symbol}
+              className="min-w-[15.5rem] shrink-0 rounded-lg bg-elevated p-3 shadow-[var(--shadow-border)]"
+            >
+              <button
+                type="button"
+                className="w-full text-left"
+                onClick={() => onSelect(p.symbol)}
+              >
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-sm">{q?.symbol ?? p.symbol}</span>
+                  <span className={cn("font-mono text-xs", mtm >= 0 ? "text-primary" : "text-down")}>
+                    {money(mtm)}
+                  </span>
+                </span>
+                <span className="mt-0.5 block font-mono text-xs text-muted">
+                  {qtyFmt(p.qty)} · {money(value)} · avg {money(p.avg)}
+                </span>
+              </button>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  className="min-h-11 rounded-md bg-surface text-xs font-medium"
+                  onClick={() => onSellHalf(p.symbol)}
+                >
+                  Sell ½
+                </button>
+                <button
+                  type="button"
+                  className="min-h-11 rounded-md bg-down text-xs font-semibold text-fg"
+                  onClick={() => onSellAll(p.symbol)}
+                >
+                  Sell all
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function Watch({
   quotes,
   filter,
@@ -296,6 +420,8 @@ function Watch({
   query,
   setQuery,
   onSearch,
+  holdings,
+  onSellAll,
 }: {
   quotes: Quote[];
   filter: "all" | MarketKind;
@@ -305,6 +431,8 @@ function Watch({
   query: string;
   setQuery: (q: string) => void;
   onSearch: (symbol: string) => void;
+  holdings: Record<string, Position>;
+  onSellAll: (id: string) => void;
 }) {
   const filters: Array<"all" | MarketKind> = ["all", "stock", "crypto", "pump"];
   return (
@@ -348,27 +476,46 @@ function Watch({
       <ul className="max-h-[70dvh] overflow-y-auto md:max-h-[calc(100dvh-16rem)]">
         {quotes.map((q) => {
           const up = q.changePct >= 0;
+          const held = holdings[q.id];
+          const mtm = held ? (q.price - held.avg) * held.qty : 0;
           return (
             <li key={q.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(q.id)}
+              <div
                 className={cn(
-                  "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150",
+                  "flex w-full items-center gap-2 px-3 py-2.5 transition-colors duration-150",
                   selectedId === q.id ? "bg-elevated" : "hover:bg-surface",
                 )}
               >
-                <span className="w-16 font-mono text-xs text-muted">{kindLabel(q.kind)}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-mono text-sm">{q.symbol}</span>
-                  <span className="block truncate text-xs text-muted">{q.name}</span>
-                </span>
-                <Spark data={q.spark} up={up} />
-                <span className="w-24 text-right font-mono text-xs tabular-nums">
-                  <span className="block">{money(q.price)}</span>
-                  <span className={up ? "text-primary" : "text-down"}>{pct(q.changePct)}</span>
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelect(q.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="w-16 font-mono text-xs text-muted">{kindLabel(q.kind)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-mono text-sm">{q.symbol}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {held ? `You hold ${qtyFmt(held.qty)}` : q.name}
+                    </span>
+                  </span>
+                  <Spark data={q.spark} up={up} />
+                  <span className="w-24 text-right font-mono text-xs tabular-nums">
+                    <span className="block">{money(q.price)}</span>
+                    <span className={held ? (mtm >= 0 ? "text-primary" : "text-down") : up ? "text-primary" : "text-down"}>
+                      {held ? money(mtm) : pct(q.changePct)}
+                    </span>
+                  </span>
+                </button>
+                {held && (
+                  <button
+                    type="button"
+                    className="min-h-11 shrink-0 rounded-md bg-down px-2.5 text-xs font-semibold text-fg"
+                    onClick={() => onSellAll(q.id)}
+                  >
+                    Sell
+                  </button>
+                )}
+              </div>
             </li>
           );
         })}
@@ -382,6 +529,7 @@ function ChartAndTicket({
   notional,
   setNotional,
   position,
+  lockUntil,
   onTrade,
   equity,
   stats,
@@ -391,7 +539,8 @@ function ChartAndTicket({
   notional: number;
   setNotional: (n: number) => void;
   position?: { qty: number; avg: number };
-  onTrade: (side: "buy" | "sell") => void;
+  lockUntil: number;
+  onTrade: (side: "buy" | "sell", close?: boolean) => void;
   equity: { t: number; v: number }[];
   stats: DeskSnapshot["stats"];
   marketOpen: boolean;
@@ -455,8 +604,8 @@ function ChartAndTicket({
       </div>
 
       <div className="grid gap-3 rounded-lg bg-surface p-4 shadow-[var(--shadow-border)]">
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span>Buy or sell · fees come out of the fill</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+          <span>You trade this yourself · bots keep running in the background</span>
           {position && (
             <span className="font-mono text-fg">
               You own {qtyFmt(position.qty)} @ {money(position.avg)}{" "}
@@ -464,7 +613,14 @@ function ChartAndTicket({
             </span>
           )}
         </div>
-        <p className="text-xs text-muted">Dollar amount</p>
+        {lockUntil > Date.now() && (
+          <p className="text-xs text-warn">
+            You sold this. Bots skip {quote.symbol} until{" "}
+            {new Date(lockUntil).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.
+            You can still buy it yourself any time.
+          </p>
+        )}
+        <p className="text-xs text-muted">Dollar amount (buy, or sell part of a position)</p>
         <div className="flex flex-wrap gap-2">
           {SIZES.map((n) => (
             <button
@@ -494,17 +650,30 @@ function ChartAndTicket({
             onClick={() => onTrade("buy")}
             className="min-h-11 rounded-md bg-primary font-semibold text-bg"
           >
-            Buy
+            Buy {compactMoney(notional)}
           </button>
           <button
             type="button"
             onClick={() => onTrade("sell")}
             disabled={!position}
-            className="min-h-11 rounded-md bg-down font-semibold text-fg disabled:opacity-40"
+            className="min-h-11 rounded-md bg-elevated font-semibold text-fg disabled:opacity-40"
           >
-            Sell
+            Sell {compactMoney(notional)}
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => onTrade("sell", true)}
+          disabled={!position}
+          className="min-h-11 w-full rounded-md bg-down font-semibold text-fg disabled:opacity-40"
+        >
+          {position
+            ? `Sell all ${quote.symbol} · ${qtyFmt(position.qty)} · ${money(position.qty * quote.price)}`
+            : "Sell all — you don't hold this"}
+        </button>
+        <p className="text-xs text-muted">
+          Paper fills hit now. You do not wait for a bot. Fees come out of the fill.
+        </p>
         <p className="text-xs text-muted">
           Open profit {money(stats.unrealizedPnl)} · Cashed in {money(stats.realizedPnl)} · Fees{" "}
           {money(stats.feesPaid)}
@@ -798,7 +967,17 @@ function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: strin
   );
 }
 
-function LogPane({ desk }: { desk: DeskSnapshot }) {
+function LogPane({
+  desk,
+  onSelect,
+  onSellAll,
+  onOpenMarkets,
+}: {
+  desk: DeskSnapshot;
+  onSelect: (id: string) => void;
+  onSellAll: (id: string) => void;
+  onOpenMarkets: () => void;
+}) {
   return (
     <div className="grid gap-4 p-4 md:grid-cols-2">
       <div>
@@ -832,15 +1011,31 @@ function LogPane({ desk }: { desk: DeskSnapshot }) {
             return (
               <li
                 key={p.symbol}
-                className="flex items-center justify-between rounded-md bg-surface px-3 py-2 font-mono text-xs"
+                className="flex items-center justify-between gap-2 rounded-md bg-surface px-3 py-2"
               >
-                <span>
-                  {q?.symbol ?? p.symbol}
-                  <span className="block text-muted">avg {money(p.avg)}</span>
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left font-mono text-xs"
+                  onClick={() => {
+                    onSelect(p.symbol);
+                    onOpenMarkets();
+                  }}
+                >
+                  <span>{q?.symbol ?? p.symbol}</span>
+                  <span className="block text-muted">
+                    {qtyFmt(p.qty)} @ {money(p.avg)}
+                  </span>
+                </button>
+                <span className={cn("font-mono text-xs", mtm >= 0 ? "text-primary" : "text-down")}>
+                  {money(mtm)}
                 </span>
-                <span className={mtm >= 0 ? "text-primary" : "text-down"}>
-                  {qtyFmt(p.qty)} · {money(mtm)}
-                </span>
+                <button
+                  type="button"
+                  className="min-h-11 rounded-md bg-down px-3 text-xs font-semibold text-fg"
+                  onClick={() => onSellAll(p.symbol)}
+                >
+                  Sell all
+                </button>
               </li>
             );
           })}

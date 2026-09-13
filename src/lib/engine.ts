@@ -143,6 +143,7 @@ export function applyFill(
   let realizedPnl = 0;
   const positions = { ...state.positions };
   let cash = state.cash;
+  const manualLocks = { ...(state.manualLocks || {}) };
 
   if (side === "buy") {
     cash -= gross + fees.total;
@@ -160,14 +161,17 @@ export function applyFill(
         peak: Math.max(prev.peak, quote.price),
       };
     }
+    if (source === "manual") delete manualLocks[symbol];
   } else {
     const prev = positions[symbol]!;
     const proceeds = gross - fees.total;
     cash += proceeds;
     realizedPnl = proceeds - prev.avg * qty;
     const left = prev.qty - qty;
-    if (left <= 1e-12) delete positions[symbol];
-    else positions[symbol] = { ...prev, qty: left };
+    if (left <= 1e-12) {
+      delete positions[symbol];
+      if (source === "manual") manualLocks[symbol] = Date.now() + 30 * 60 * 1000;
+    } else positions[symbol] = { ...prev, qty: left };
   }
 
   const fill: Fill = {
@@ -198,6 +202,7 @@ export function applyFill(
     ...state,
     cash,
     positions,
+    manualLocks,
     fills: [fill, ...state.fills].slice(0, 400),
   };
 }
@@ -348,10 +353,20 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
   return all.filter((q) => q.kind === bot.scope);
 }
 
+function botsMayBuy(state: DeskState, symbol: string, at = Date.now()): boolean {
+  return (state.manualLocks?.[symbol] ?? 0) <= at;
+}
+
 export function tickBots(state: DeskState): DeskState {
   if (state.halted) return state;
 
-  let next = state;
+  const now = Date.now();
+  const keptLocks: Record<string, number> = {};
+  for (const [sym, until] of Object.entries(state.manualLocks || {})) {
+    if (until > now) keptLocks[sym] = until;
+  }
+
+  let next: DeskState = { ...state, manualLocks: keptLocks };
   const equity = markToMarket(state);
   const lossPct = ((equity - state.dayStartEquity) / state.dayStartEquity) * 100;
   if (lossPct <= -state.maxDailyLossPct) {
@@ -415,6 +430,9 @@ export function tickBots(state: DeskState): DeskState {
         }
         if (pending.side === "buy" && pos) {
           pending.consumed = true;
+          continue;
+        }
+        if (pending.side === "buy" && !botsMayBuy(next, quote.id)) {
           continue;
         }
         if (pending.side === "buy" && held >= maxNames) {
@@ -508,6 +526,7 @@ export function tickBots(state: DeskState): DeskState {
     for (const quote of universe) {
       if (held >= maxNames) break;
       if (next.positions[quote.id]) continue;
+      if (!botsMayBuy(next, quote.id)) continue;
       if (quote.kind === "stock" && !rth) continue;
       const sig = pickSignal(bot, quote, undefined);
       if (sig !== "buy") continue;

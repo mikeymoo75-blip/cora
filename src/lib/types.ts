@@ -135,6 +135,8 @@ export type DeskState = {
   loopOk: boolean;
   tests: TestRun[];
   runStartedAt: number;
+  /** Unix ms until which bots must not re-buy this symbol after a manual close. */
+  manualLocks: Record<string, number>;
 };
 
 export type DeskSnapshot = DeskState & {

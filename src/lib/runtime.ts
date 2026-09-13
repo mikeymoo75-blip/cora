@@ -162,6 +162,7 @@ function blank(): DeskState {
     loopOk: false,
     tests: [],
     runStartedAt: Date.now(),
+    manualLocks: {},
   };
 }
 
@@ -205,6 +206,7 @@ function load(): DeskState {
       copyEvents: parsed.copyEvents || [],
       tests: parsed.tests || [],
       runStartedAt: parsed.runStartedAt || Date.now(),
+      manualLocks: parsed.manualLocks || {},
       fills: (parsed.fills || []).map((f) => ({
         ...f,
         reason: f.reason || f.note || "",
@@ -412,19 +414,34 @@ export function startDeskLoop() {
   }, TICK_MS);
 }
 
-export function placeOrder(side: "buy" | "sell", symbol: string, notional: number) {
+export function placeOrder(side: "buy" | "sell", symbol: string, notional: number, close = false) {
   const s = getState();
   const q = s.quotes[symbol];
   if (!q) return snapshot();
+  const pos = s.positions[q.id];
+  let size = Math.max(0, notional);
+  let reason =
+    side === "buy"
+      ? "You bought this yourself — did not wait for a bot."
+      : "You sold this yourself — did not wait for a bot.";
+  if (side === "sell") {
+    if (!pos || pos.qty <= 0) return snapshot();
+    if (close) {
+      size = pos.qty * q.price * 1.1;
+      reason =
+        "You closed this yourself. Bots skip this name for 30 minutes so they do not buy it back.";
+    }
+  }
+  if (size < 1 && !close) return snapshot();
   const next = applyFill(
     s,
     side,
     q.id,
     q.kind,
-    notional,
+    size,
     "manual",
     undefined,
-    "You placed this trade.",
+    reason,
   );
   setState({
     ...next,

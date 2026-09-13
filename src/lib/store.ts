@@ -49,8 +49,8 @@ export function useServerDesk() {
     desk,
     err,
     refresh,
-    trade: (side: "buy" | "sell", symbol: string, notional: number) =>
-      run(() => placeOrder({ data: { side, symbol, notional } })),
+    trade: (side: "buy" | "sell", symbol: string, notional: number, close = false) =>
+      run(() => placeOrder({ data: { side, symbol, notional, close } })),
     toggleBot: (id: string) => run(() => toggleBot({ data: { id } })),
     addBot: (input: {
       name: string;

@@ -1,8 +1,9 @@
 # Cora Desktop (`cora`)
 
 24/7 server paper desk for stocks, crypto, and Pump.fun-style coins.
-Bots keep running after you close the browser. Fills, fees, and P/L persist
-on disk. No live brokerage or wallet keys yet.
+Bots keep running after you close the browser. You can also buy and sell
+yourself at any time — you do not wait for a bot. Fills, fees, and P/L
+persist on disk. No live brokerage or wallet keys yet.
 
 Live: [https://cora.datosfarm.com](https://cora.datosfarm.com)
 
