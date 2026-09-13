@@ -323,11 +323,18 @@ export function setBotSize(id: string, sizeUsd: number) {
 }
 
 export function resetBook() {
-  const quotes = getState().quotes;
-  const live = getState().liveQuotes;
+  const s = getState();
   const next = blank();
-  next.quotes = quotes;
-  next.liveQuotes = live;
+  next.quotes = s.quotes;
+  next.liveQuotes = s.liveQuotes;
+  next.bots = s.bots.map((b) => ({
+    ...b,
+    lastSignal: b.enabled ? "idle" : b.lastSignal,
+    lastTickAt: 0,
+  }));
+  next.copyEvents = s.copyEvents.map((e) => ({ ...e, consumed: false }));
+  next.copyFetchedAt = s.copyFetchedAt;
+  next.selectedId = s.selectedId;
   setState(next);
   return snapshot();
 }

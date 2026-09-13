@@ -225,11 +225,11 @@ export function Desk() {
           type="button"
           className="inline-flex min-h-11 items-center gap-1.5 text-fg"
           onClick={() => {
-            void remote.reset().then(() => toast("Book reset to $100,000"));
+            void remote.reset().then(() => toast("Cash and P/L reset — bots kept"));
           }}
         >
           <RotateCcw className="size-3.5" />
-          Reset paper book
+          Reset cash & P/L
         </button>
       </footer>
     </div>
