@@ -30,7 +30,14 @@ export const toggleBot = createServerFn({ method: "POST" })
 
 export const addBot = createServerFn({ method: "POST" })
   .validator(
-    (input: { name: string; symbol: string; strategy: StrategyId; sizeUsd: number }) => input,
+    (input: {
+      name: string;
+      symbol: string;
+      strategy: StrategyId;
+      sizeUsd: number;
+      scope?: "one" | "stock" | "crypto" | "pump" | "all";
+      maxNames?: number;
+    }) => input,
   )
   .handler(async ({ data }): Promise<DeskSnapshot> => {
     const m = await rt();

@@ -247,11 +247,12 @@ export function botScores(state: DeskState): BotScore[] {
     const fills = state.fills.filter((f) => f.botId === bot.id || f.botName === bot.name);
     const realizedPnl = fills.reduce((s, f) => s + (f.realizedPnl || 0), 0);
     const fees = fills.reduce((s, f) => s + f.fee, 0);
-    const lastBuy = fills.find((f) => f.side === "buy" && f.symbol === bot.symbol);
-    const pos = state.positions[bot.symbol];
-    const q = state.quotes[bot.symbol];
-    const unrealizedPnl =
-      lastBuy && pos && q ? (q.price - pos.avg) * pos.qty : 0;
+    let unrealizedPnl = 0;
+    for (const sym of ownedSymbols(state, bot.id)) {
+      const pos = state.positions[sym];
+      const q = state.quotes[sym];
+      if (pos && q) unrealizedPnl += (q.price - pos.avg) * pos.qty;
+    }
     return {
       botId: bot.id,
       name: bot.name,
@@ -264,6 +265,29 @@ export function botScores(state: DeskState): BotScore[] {
       enabled: bot.enabled,
     };
   });
+}
+
+function ownedSymbols(state: DeskState, botId: string): string[] {
+  const latest = new Map<string, Fill>();
+  for (const f of state.fills) {
+    if (f.botId !== botId) continue;
+    if (!latest.has(f.symbol)) latest.set(f.symbol, f);
+  }
+  const out: string[] = [];
+  for (const [sym, f] of latest) {
+    if (f.side === "buy" && state.positions[sym]) out.push(sym);
+  }
+  return out;
+}
+
+function scanQuotes(state: DeskState, bot: Bot): Quote[] {
+  const all = Object.values(state.quotes);
+  if (bot.scope === "one" || !bot.scope) {
+    const q = state.quotes[bot.symbol];
+    return q ? [q] : [];
+  }
+  if (bot.scope === "all") return all;
+  return all.filter((q) => q.kind === bot.scope);
 }
 
 export function tickBots(state: DeskState): DeskState {
@@ -345,55 +369,95 @@ export function tickBots(state: DeskState): DeskState {
       continue;
     }
 
-    const quote = next.quotes[bot.symbol];
-    if (!quote) {
+    const universe = scanQuotes(next, bot);
+    if (!universe.length) {
       bot.lastSignal = "no quote";
-      bot.lastReason = "No price for this symbol.";
+      bot.lastReason = "Nothing to scan yet.";
       continue;
     }
-    if (bot.kind === "stock" && !rth) {
-      bot.lastSignal = "market closed";
-      bot.lastReason = "US stock market is closed. Stock bots wait until 9:30–4:00 ET weekdays. Crypto and Pump.fun still run.";
-      bot.lastTickAt = Date.now();
-      continue;
-    }
-    const pos = next.positions[bot.symbol];
-    if (pos) {
+
+    bot.lastTickAt = Date.now();
+    let acted = false;
+    const maxNames = Math.max(1, bot.maxNames || 4);
+
+    // Mark peaks + sell names this bot still holds.
+    for (const sym of ownedSymbols(next, bot.id)) {
+      const quote = next.quotes[sym];
+      const pos = next.positions[sym];
+      if (!quote || !pos) continue;
+      if (quote.kind === "stock" && !rth) continue;
       next = {
         ...next,
         positions: {
           ...next.positions,
-          [bot.symbol]: { ...pos, peak: Math.max(pos.peak, quote.price) },
+          [sym]: { ...pos, peak: Math.max(pos.peak, quote.price) },
         },
       };
-    }
-    const sig = technicalSignal(bot, quote, next.positions[bot.symbol]);
-    bot.lastSignal = sig;
-    bot.lastTickAt = Date.now();
-    if (sig === "hold") {
-      bot.lastReason = "Rule says wait — no buy or sell right now.";
-      continue;
+      const sig = technicalSignal(bot, quote, next.positions[sym]);
+      if (sig !== "sell") continue;
+      const notional = pos.qty * quote.price;
+      const reason = `${quote.symbol}: ${whySignal(bot.strategy, "sell")}`;
+      next = applyFill(
+        next,
+        "sell",
+        quote.id,
+        quote.kind,
+        notional,
+        "bot",
+        bot.name,
+        reason,
+        undefined,
+        bot.id,
+      );
+      bot.lastSignal = "sell";
+      bot.lastReason = reason;
+      acted = true;
     }
 
-    const eq = markToMarket(next);
-    const cap = eq * 0.25;
-    const size = Math.min(bot.sizeUsd, cap, next.cash);
-    if (sig === "buy" && size < 10) continue;
-    const notional = sig === "sell" ? (next.positions[bot.symbol]?.qty ?? 0) * quote.price : size;
-    const reason = whySignal(bot.strategy, sig);
-    bot.lastReason = reason;
-    next = applyFill(
-      next,
-      sig,
-      bot.symbol,
-      bot.kind,
-      notional,
-      "bot",
-      bot.name,
-      reason,
-      undefined,
-      bot.id,
-    );
+    // Buy new names that pass the rule.
+    let held = ownedSymbols(next, bot.id).length;
+    for (const quote of universe) {
+      if (held >= maxNames) break;
+      if (next.positions[quote.id]) continue;
+      if (quote.kind === "stock" && !rth) continue;
+      const sig = technicalSignal(bot, quote, undefined);
+      if (sig !== "buy") continue;
+      const eq = markToMarket(next);
+      const size = Math.min(bot.sizeUsd, eq * 0.2, next.cash);
+      if (size < 10) break;
+      const reason = `${quote.symbol}: ${whySignal(bot.strategy, "buy")}`;
+      next = applyFill(
+        next,
+        "buy",
+        quote.id,
+        quote.kind,
+        size,
+        "bot",
+        bot.name,
+        reason,
+        undefined,
+        bot.id,
+      );
+      bot.lastSignal = "buy";
+      bot.lastReason = reason;
+      bot.symbol = quote.id;
+      bot.kind = quote.kind;
+      held += 1;
+      acted = true;
+    }
+
+    if (!acted) {
+      const n = universe.length;
+      const heldNow = ownedSymbols(next, bot.id);
+      bot.lastSignal = "scanning";
+      bot.lastReason =
+        bot.scope === "one"
+          ? `Watching ${next.quotes[bot.symbol]?.symbol ?? bot.symbol} — no buy or sell yet.`
+          : `Scanned ${n} name${n === 1 ? "" : "s"}. Holding ${heldNow.length}/${maxNames}. No new signal this pass.`;
+      if (universe.some((q) => q.kind === "stock") && !rth && bot.scope !== "crypto" && bot.scope !== "pump") {
+        bot.lastReason += " Stock names wait until 9:30–4:00 ET.";
+      }
+    }
   }
 
   const v = markToMarket(next);

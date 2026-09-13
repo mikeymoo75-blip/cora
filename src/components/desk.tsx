@@ -23,8 +23,8 @@ import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, money, pct, qtyFmt } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
-import type { BotScore, DeskSnapshot, Fill, MarketKind, Quote, StrategyId } from "@/lib/types";
-import { STRATEGY_COPY } from "@/lib/universe";
+import type { BotScore, DeskSnapshot, Fill, MarketKind, Quote, ScanScope, StrategyId } from "@/lib/types";
+import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 const TABS = ["Markets", "Bots", "Copy", "Log"] as const;
 type Tab = (typeof TABS)[number];
@@ -535,14 +535,23 @@ function BotsPane({
   quotes: Quote[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
-  onAdd: (input: { name: string; symbol: string; strategy: StrategyId; sizeUsd: number }) => void;
+  onAdd: (input: {
+    name: string;
+    symbol: string;
+    strategy: StrategyId;
+    sizeUsd: number;
+    scope: ScanScope;
+    maxNames: number;
+  }) => void;
 }) {
-  const [name, setName] = useState("New bot");
+  const [name, setName] = useState("Scan bot");
   const [symbol, setSymbol] = useState("AAPL");
   const [strategy, setStrategy] = useState<StrategyId>("sma");
+  const [scope, setScope] = useState<ScanScope>("stock");
   const [size, setSize] = useState(2000);
   const stratBots = desk.bots.filter((b) => b.strategy !== "copy");
   const selectedQuote = quotes.find((q) => q.id === symbol) ?? quotes[0];
+  const maxNames = scope === "one" ? 1 : scope === "pump" ? 3 : scope === "all" ? 6 : 4;
 
   return (
     <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1.2fr)_minmax(16rem,0.8fr)]">
@@ -551,18 +560,24 @@ function BotsPane({
           <Bot className="size-4 text-primary" />
           <h2 className="text-sm font-semibold">Which bots are making money</h2>
         </div>
+        <p className="mb-3 text-xs leading-relaxed text-muted">
+          Scan bots look through every matching name each pass, buy what fits the
+          rule, and sell what no longer does. They will not stack two bots on the
+          same ticker.
+        </p>
         <Scoreboard scores={desk.scores.filter((s) => stratBots.some((b) => b.id === s.botId))} />
         <ul className="mt-4 space-y-2">
           {stratBots.map((b) => {
             const score = desk.scores.find((s) => s.botId === b.id);
+            const scopeLabel = SCOPE_COPY[b.scope || "one"]?.label || "One ticker";
             return (
               <li key={b.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-sm">{b.name}</p>
                     <p className="text-xs text-muted">
-                      {desk.quotes[b.symbol]?.symbol ?? b.symbol} · {STRATEGY_COPY[b.strategy]?.label} ·{" "}
-                      {money(b.sizeUsd, 0)} each time
+                      {scopeLabel} · {STRATEGY_COPY[b.strategy]?.label} · {money(b.sizeUsd, 0)} each
+                      {b.scope && b.scope !== "one" ? ` · up to ${b.maxNames || 4} names` : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
@@ -578,12 +593,13 @@ function BotsPane({
                   </div>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-muted">
-                  {b.enabled ? "On — keeps trading after you close this page." : "Off."}{" "}
+                  {b.enabled ? "On — scans even after you close this page." : "Off."}{" "}
                   {b.lastReason || STRATEGY_COPY[b.strategy]?.blurb}
                 </p>
                 {score && (
                   <p className={cn("mt-1 font-mono text-xs", score.netPnl >= 0 ? "text-primary" : "text-down")}>
                     {score.trades} trades · net {money(score.netPnl)} after {money(score.fees)} fees
+                    {score.unrealizedPnl ? ` · open ${money(score.unrealizedPnl)}` : ""}
                   </p>
                 )}
               </li>
@@ -595,12 +611,14 @@ function BotsPane({
         className="h-fit space-y-2 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!selectedQuote) return;
+          if (!selectedQuote && scope === "one") return;
           onAdd({
             name,
-            symbol: selectedQuote.id,
+            symbol: selectedQuote?.id || "SPY",
             strategy,
             sizeUsd: size,
+            scope,
+            maxNames,
           });
         }}
       >
@@ -612,16 +630,30 @@ function BotsPane({
           placeholder="Name"
         />
         <select
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
+          value={scope}
+          onChange={(e) => setScope(e.target.value as ScanScope)}
           className="min-h-11 w-full rounded-md bg-elevated px-3 text-sm outline-none"
         >
-          {quotes.map((q) => (
-            <option key={q.id} value={q.id}>
-              {q.symbol} — {q.name}
+          {(Object.keys(SCOPE_COPY) as ScanScope[]).map((k) => (
+            <option key={k} value={k}>
+              {SCOPE_COPY[k].label}
             </option>
           ))}
         </select>
+        <p className="text-xs leading-relaxed text-muted">{SCOPE_COPY[scope]?.blurb}</p>
+        {scope === "one" && (
+          <select
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            className="min-h-11 w-full rounded-md bg-elevated px-3 text-sm outline-none"
+          >
+            {quotes.map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.symbol} — {q.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           value={strategy}
           onChange={(e) => setStrategy(e.target.value as StrategyId)}

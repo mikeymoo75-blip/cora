@@ -9,7 +9,7 @@ import {
   resumeHalt,
   toggleBot,
 } from "./desk-api";
-import type { DeskSnapshot, StrategyId } from "./types";
+import type { DeskSnapshot, ScanScope, StrategyId } from "./types";
 
 export function useServerDesk() {
   const [desk, setDesk] = useState<DeskSnapshot | null>(null);
@@ -52,8 +52,14 @@ export function useServerDesk() {
     trade: (side: "buy" | "sell", symbol: string, notional: number) =>
       run(() => placeOrder({ data: { side, symbol, notional } })),
     toggleBot: (id: string) => run(() => toggleBot({ data: { id } })),
-    addBot: (input: { name: string; symbol: string; strategy: StrategyId; sizeUsd: number }) =>
-      run(() => addBot({ data: input })),
+    addBot: (input: {
+      name: string;
+      symbol: string;
+      strategy: StrategyId;
+      sizeUsd: number;
+      scope?: ScanScope;
+      maxNames?: number;
+    }) => run(() => addBot({ data: input })),
     removeBot: (id: string) => run(() => removeBot({ data: { id } })),
     addSymbol: (symbol: string) => run(() => addSymbol({ data: { symbol } })),
     reset: (name?: string) => run(() => resetBook({ data: { name } })),

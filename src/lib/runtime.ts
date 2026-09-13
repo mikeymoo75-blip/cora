@@ -4,7 +4,7 @@ import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyEvents } from "./copy";
 import { applyFill, botScores, deskStats, markToMarket, mergeQuotes, stockMarketOpen, tickBots, todayStamp } from "./engine";
 import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
-import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, StrategyId } from "./types";
+import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
 
 const STARTING = 100_000;
@@ -18,61 +18,85 @@ function dataFile(): string {
 function defaultBots(): Bot[] {
   return [
     {
-      id: "bot-nvda",
-      name: "NVDA SMA",
+      id: "bot-scan-stock-trend",
+      name: "Scan stocks · trend",
       enabled: false,
-      symbol: "NVDA",
+      symbol: "SPY",
       kind: "stock",
       strategy: "sma",
-      sizeUsd: 5000,
+      sizeUsd: 4000,
+      scope: "stock",
+      maxNames: 5,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
     },
     {
-      id: "bot-spy",
-      name: "SPY dip",
+      id: "bot-scan-stock-dip",
+      name: "Scan stocks · dips",
       enabled: false,
       symbol: "SPY",
       kind: "stock",
       strategy: "dca",
-      sizeUsd: 4000,
+      sizeUsd: 3000,
+      scope: "stock",
+      maxNames: 5,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
     },
     {
-      id: "bot-btc",
-      name: "BTC momentum",
+      id: "bot-scan-crypto",
+      name: "Scan crypto · momentum",
       enabled: false,
       symbol: "BTC",
       kind: "crypto",
       strategy: "momentum",
-      sizeUsd: 6000,
+      sizeUsd: 3500,
+      scope: "crypto",
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
     },
     {
-      id: "bot-sol",
-      name: "SOL mean rev",
+      id: "bot-scan-crypto-dip",
+      name: "Scan crypto · dips",
       enabled: false,
-      symbol: "SOL",
+      symbol: "ETH",
       kind: "crypto",
       strategy: "meanrev",
-      sizeUsd: 3500,
+      sizeUsd: 2500,
+      scope: "crypto",
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
     },
     {
-      id: "bot-pump",
-      name: "Pump sniper",
+      id: "bot-scan-pump",
+      name: "Scan Pump.fun",
       enabled: false,
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
-      sizeUsd: 800,
+      sizeUsd: 600,
+      scope: "pump",
+      maxNames: 3,
+      lastSignal: "idle",
+      lastTickAt: 0,
+      lastReason: "",
+    },
+    {
+      id: "bot-scan-all",
+      name: "Scan everything",
+      enabled: false,
+      symbol: "SPY",
+      kind: "stock",
+      strategy: "momentum",
+      sizeUsd: 2000,
+      scope: "all",
+      maxNames: 6,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -85,6 +109,8 @@ function defaultBots(): Bot[] {
       kind: "stock" as MarketKind,
       strategy: "copy" as StrategyId,
       sizeUsd: l.kind === "public" ? 8000 : 4000,
+      scope: "one" as ScanScope,
+      maxNames: 8,
       leaderId: l.id,
       lastSignal: "idle",
       lastTickAt: 0,
@@ -129,15 +155,33 @@ function load(): DeskState {
     const raw = readFileSync(dataFile(), "utf8");
     const parsed = JSON.parse(raw) as DeskState;
     const base = blank();
-    const bots = parsed.bots?.length ? parsed.bots : base.bots;
+    let bots = parsed.bots?.length ? parsed.bots : base.bots;
     const haveCopy = bots.some((b) => b.strategy === "copy");
+    if (!haveCopy) bots = [...bots, ...base.bots.filter((b) => b.strategy === "copy")];
+    const haveScan = bots.some((b) => b.scope && b.scope !== "one" && b.strategy !== "copy");
+    if (!haveScan) {
+      const stale = new Set([
+        "bot-nvda",
+        "bot-spy",
+        "bot-btc",
+        "bot-sol",
+        "bot-pump",
+      ]);
+      bots = [
+        ...base.bots.filter((b) => b.strategy !== "copy"),
+        ...bots.filter((b) => b.strategy === "copy" || !stale.has(b.id)),
+      ];
+    }
     return {
       ...base,
       ...parsed,
       quotes: { ...base.quotes, ...(parsed.quotes || {}) },
-      bots: (haveCopy ? bots : [...bots, ...base.bots.filter((b) => b.strategy === "copy")]).map(
-        (b) => ({ ...b, lastReason: b.lastReason || "" }),
-      ),
+      bots: bots.map((b) => ({
+        ...b,
+        lastReason: b.lastReason || "",
+        scope: b.scope || "one",
+        maxNames: b.maxNames || (b.scope && b.scope !== "one" ? 4 : 1),
+      })),
       copyEvents: parsed.copyEvents || [],
       tests: parsed.tests || [],
       runStartedAt: parsed.runStartedAt || Date.now(),
@@ -320,9 +364,12 @@ export function addBot(input: {
   symbol: string;
   strategy: StrategyId;
   sizeUsd: number;
+  scope?: ScanScope;
+  maxNames?: number;
 }) {
   const s = getState();
-  const q = s.quotes[input.symbol];
+  const scope: ScanScope = input.scope || "one";
+  const q = s.quotes[input.symbol] || Object.values(s.quotes)[0];
   if (!q) return snapshot();
   const bot: Bot = {
     id: `bot-${Date.now()}`,
@@ -332,6 +379,8 @@ export function addBot(input: {
     kind: q.kind,
     strategy: input.strategy,
     sizeUsd: input.sizeUsd,
+    scope,
+    maxNames: input.maxNames || (scope === "one" ? 1 : 4),
     lastSignal: "idle",
     lastTickAt: 0,
     lastReason: "",

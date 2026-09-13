@@ -46,6 +46,8 @@ export type Fill = {
   note?: string;
 };
 
+export type ScanScope = "one" | "stock" | "crypto" | "pump" | "all";
+
 export type Bot = {
   id: string;
   name: string;
@@ -54,6 +56,8 @@ export type Bot = {
   kind: MarketKind;
   strategy: StrategyId;
   sizeUsd: number;
+  scope: ScanScope;
+  maxNames: number;
   leaderId?: string;
   lastSignal: string;
   lastTickAt: number;

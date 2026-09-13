@@ -1,4 +1,4 @@
-import type { MarketKind, Quote, StrategyId } from "./types";
+import type { MarketKind, Quote, ScanScope, StrategyId } from "./types";
 
 export type Seed = {
   id: string;
@@ -93,5 +93,28 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   copy: {
     label: "Copy a person",
     blurb: "Mirrors public STOCK Act filings or a known public holding. Often weeks late.",
+  },
+};
+
+export const SCOPE_COPY: Record<ScanScope, { label: string; blurb: string }> = {
+  one: {
+    label: "One ticker only",
+    blurb: "Watches just the name you pick.",
+  },
+  stock: {
+    label: "Scan all stocks",
+    blurb: "Looks through every stock on the desk for a buy or sell.",
+  },
+  crypto: {
+    label: "Scan all crypto",
+    blurb: "Looks through Bitcoin, ETH, SOL, and the rest of the crypto list.",
+  },
+  pump: {
+    label: "Scan Pump.fun",
+    blurb: "Looks through the live Pump.fun coins for a chase or a dump.",
+  },
+  all: {
+    label: "Scan everything",
+    blurb: "Stocks, crypto, and Pump.fun in one bot.",
   },
 };
