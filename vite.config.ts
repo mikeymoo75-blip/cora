@@ -155,6 +155,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: process.env.DOCKER ? "0.0.0.0" : "127.0.0.1",
     port: process.env.DOCKER ? 8080 : 8081,
     strictPort: true,
+    allowedHosts: process.env.DOCKER ? true : ["127.0.0.1", "localhost"],
   },
   resolve: { tsconfigPaths: true },
   plugins: [
