@@ -40,6 +40,27 @@ import type {
 } from "@/lib/types";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
+function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
+  const order = [
+    "buffett",
+    "cathie",
+    "ackman",
+    "hl-1",
+    "hl-2",
+    "hl-3",
+    "hl-4",
+    "hl-5",
+    "elon",
+    "trump",
+    "pelosi",
+  ];
+  return bots.slice().sort((a, b) => {
+    const ra = order.indexOf(a.leaderId || "");
+    const rb = order.indexOf(b.leaderId || "");
+    return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
+  });
+}
+
 const TABS = ["Markets", "Bots", "Copy", "Log"] as const;
 type Tab = (typeof TABS)[number];
 const SIZES = [10, 25, 50, 100];
@@ -791,7 +812,7 @@ function BotsPane({
   const [scope, setScope] = useState<ScanScope>("stock");
   const [size, setSize] = useState(25);
   const stratBots = desk.bots.filter((b) => b.strategy !== "copy");
-  const copyBots = desk.bots.filter((b) => b.strategy === "copy");
+  const copyBots = copyPeopleFirst(desk.bots.filter((b) => b.strategy === "copy"));
   const selectedQuote = quotes.find((q) => q.id === symbol) ?? quotes[0];
   const pumpStrats: StrategyId[] = ["sniper", "scalp"];
   const bookStrats: StrategyId[] = ["sma", "meanrev", "momentum", "dca"];
@@ -998,9 +1019,9 @@ function Scoreboard({ scores }: { scores: BotScore[] }) {
 }
 
 function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: string) => void }) {
-  const copyBots = desk.bots.filter((b) => b.strategy === "copy");
+  const copyBots = copyPeopleFirst(desk.bots.filter((b) => b.strategy === "copy"));
   const groups: { title: string; kinds: string[] }[] = [
-    { title: "Star investors (stocks)", kinds: ["star"] },
+    { title: "Warren Buffett / ARKK / Ackman", kinds: ["star"] },
     { title: "Crypto top traders", kinds: ["crypto-top"] },
     { title: "Congress", kinds: ["congress", "spouse"] },
     { title: "Public figures", kinds: ["public"] },

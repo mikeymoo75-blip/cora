@@ -326,16 +326,28 @@ function fitBotsToBank(state: DeskState): DeskState {
   return changed ? { ...state, bots } : state;
 }
 
+function ensureCopyLeaders(state: DeskState): DeskState {
+  const extras = defaultBots().filter((d) => d.strategy === "copy");
+  const next = [...state.bots];
+  let added = false;
+  for (const d of extras) {
+    if (next.some((b) => b.id === d.id || (d.leaderId && b.leaderId === d.leaderId))) continue;
+    next.push(d);
+    added = true;
+  }
+  return added ? { ...state, bots: next } : state;
+}
+
 export function getState(): DeskState {
   let cur = g().__coraDesk;
   if (cur && cur.startingCash >= 10_000) cur = undefined;
   if (!cur) {
-    cur = ensureWallets(fitBotsToBank(load()));
+    cur = ensureCopyLeaders(ensureWallets(fitBotsToBank(load())));
     g().__coraDesk = cur;
     save(cur);
     return cur;
   }
-  cur = ensureWallets(cur);
+  cur = ensureCopyLeaders(ensureWallets(cur));
   const fitted = fitBotsToBank(cur);
   if (fitted !== cur) {
     g().__coraDesk = fitted;

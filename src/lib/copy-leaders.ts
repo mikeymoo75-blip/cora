@@ -18,7 +18,7 @@ export const COPY_LEADERS: CopyLeader[] = [
     kind: "star",
     needles: [],
     tickers: ["AAPL", "AXP", "KO", "BAC"],
-    blurb: "Berkshire’s widely reported core book. 13F is quarterly and weeks late — not his live clicks.",
+    blurb: "Warren Buffett / Berkshire. Paper copies AAPL, AXP, KO, BAC from the public 13F. Quarterly and weeks late — not his live clicks. Off until you turn it On.",
   },
   {
     id: "cathie",
