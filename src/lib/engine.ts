@@ -776,22 +776,31 @@ export function mergeQuotes(
   return out;
 }
 
+export function pruneStaleQuotes(
+  quotes: Record<string, Quote>,
+  liveIncoming: Quote[],
+  held: Set<string>,
+  kind: Quote["kind"],
+  keepMs: number,
+): Record<string, Quote> {
+  const liveIds = new Set(liveIncoming.filter((q) => q.kind === kind && q.live).map((q) => q.id));
+  if (!liveIds.size) return quotes;
+  const now = Date.now();
+  const out: Record<string, Quote> = {};
+  for (const q of Object.values(quotes)) {
+    if (q.kind !== kind || liveIds.has(q.id) || held.has(q.id) || now - (q.seenAt || 0) < keepMs) {
+      out[q.id] = q;
+    }
+  }
+  return out;
+}
+
 export function prunePumpQuotes(
   quotes: Record<string, Quote>,
   liveIncoming: Quote[],
   held: Set<string>,
 ): Record<string, Quote> {
-  const liveIds = new Set(liveIncoming.filter((q) => q.kind === "pump" && q.live).map((q) => q.id));
-  if (!liveIds.size) return quotes;
-  const now = Date.now();
-  const keepMs = 20 * 60 * 1000;
-  const out: Record<string, Quote> = {};
-  for (const q of Object.values(quotes)) {
-    if (q.kind !== "pump" || liveIds.has(q.id) || held.has(q.id) || now - (q.seenAt || 0) < keepMs) {
-      out[q.id] = q;
-    }
-  }
-  return out;
+  return pruneStaleQuotes(quotes, liveIncoming, held, "pump", 20 * 60 * 1000);
 }
 
 export function todayStamp(): string {

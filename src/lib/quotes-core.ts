@@ -1,4 +1,4 @@
-import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
+import { CORE_SEEDS, PUMP_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
 
 async function fetchJson(
@@ -206,6 +206,115 @@ async function pumpQuotes(solUsd: number): Promise<Quote[]> {
   return PUMP_FALLBACK.map((s) => seedQuote(s));
 }
 
+const STABLES = new Set([
+  "USDT",
+  "USDC",
+  "FDUSD",
+  "BUSD",
+  "DAI",
+  "TUSD",
+  "USDP",
+  "USDE",
+  "USD1",
+  "EUR",
+  "AEUR",
+  "PYUSD",
+  "USDS",
+]);
+
+function isLeveragedToken(sym: string): boolean {
+  return /(?:UP|DOWN|BEAR|BULL|3L|3S)$/.test(sym);
+}
+
+type BinanceTicker = {
+  symbol?: string;
+  lastPrice?: string;
+  priceChangePercent?: string;
+  quoteVolume?: string;
+  volume?: string;
+};
+
+async function binanceCryptoBoard(): Promise<Quote[]> {
+  const json = await fetchJson("https://data-api.binance.vision/api/v3/ticker/24hr", 10000);
+  const rows = Array.isArray(json) ? (json as BinanceTicker[]) : [];
+  const stockIds = new Set(STOCKS.map((s) => s.id));
+  const scored: { q: Quote; vol: number }[] = [];
+  for (const row of rows) {
+    const pair = row.symbol || "";
+    if (!pair.endsWith("USDT")) continue;
+    const sym = pair.slice(0, -4);
+    if (!/^[A-Z0-9]{2,12}$/.test(sym)) continue;
+    if (STABLES.has(sym) || isLeveragedToken(sym) || stockIds.has(sym)) continue;
+    const price = Number(row.lastPrice);
+    if (!price || !Number.isFinite(price)) continue;
+    const vol = Number(row.quoteVolume) || 0;
+    scored.push({
+      vol,
+      q: {
+        id: sym,
+        symbol: sym,
+        name: sym,
+        kind: "crypto",
+        price,
+        changePct: Number(row.priceChangePercent) || 0,
+        volume: vol,
+        spark: [price],
+        live: true,
+      },
+    });
+  }
+  scored.sort((a, b) => b.vol - a.vol);
+  return scored.slice(0, 250).map((x) => x.q);
+}
+
+type PaprikaTicker = {
+  name?: string;
+  symbol?: string;
+  quotes?: { USD?: { price?: number; percent_change_24h?: number; volume_24h?: number } };
+};
+
+async function paprikaCryptoBoard(): Promise<Quote[]> {
+  const json = await fetchJson("https://api.coinpaprika.com/v1/tickers", 10000);
+  const rows = Array.isArray(json) ? (json as PaprikaTicker[]) : [];
+  const stockIds = new Set(STOCKS.map((s) => s.id));
+  const out: Quote[] = [];
+  for (const row of rows) {
+    const sym = (row.symbol || "").toUpperCase();
+    if (!/^[A-Z0-9]{2,12}$/.test(sym)) continue;
+    if (STABLES.has(sym) || isLeveragedToken(sym) || stockIds.has(sym)) continue;
+    const usd = row.quotes?.USD;
+    const price = Number(usd?.price);
+    if (!price || !Number.isFinite(price)) continue;
+    out.push({
+      id: sym,
+      symbol: sym,
+      name: row.name || sym,
+      kind: "crypto",
+      price,
+      changePct: Number(usd?.percent_change_24h) || 0,
+      volume: Number(usd?.volume_24h) || 0,
+      spark: [price],
+      live: true,
+    });
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+async function cryptoBoard(): Promise<Quote[]> {
+  try {
+    const live = await binanceCryptoBoard();
+    if (live.length >= 40) return live;
+  } catch {
+    /* paprika backup */
+  }
+  try {
+    return await paprikaCryptoBoard();
+  } catch {
+    return [];
+  }
+}
+
 function jitter(quotes: Quote[]): Quote[] {
   return quotes.map((q) => {
     const vol = q.kind === "pump" ? 0.035 : q.kind === "crypto" ? 0.004 : 0.0015;
@@ -220,9 +329,17 @@ export async function fetchMarketSnapshot(): Promise<{
   live: boolean;
   at: number;
 }> {
-  const core = await yahooQuotes();
-  const sol = core.find((q) => q.id === "SOL")?.price ?? 200;
+  const [core, board] = await Promise.all([yahooQuotes(), cryptoBoard()]);
+  const byId = new Map(core.map((q) => [q.id, q]));
+  for (const q of board) {
+    const prev = byId.get(q.id);
+    if (prev?.kind === "stock") continue;
+    byId.set(q.id, q);
+  }
+  const merged = [...byId.values()];
+  const sol = merged.find((q) => q.id === "SOL")?.price ?? 200;
   const pump = await pumpQuotes(sol).catch(() => PUMP_FALLBACK.map((s) => seedQuote(s)));
-  const live = core.some((q) => q.live) || pump.some((q) => q.live);
-  return { quotes: [...core, ...pump], live, at: Date.now() };
+  const quotes = [...merged, ...pump];
+  const live = quotes.some((q) => q.live);
+  return { quotes, live, at: Date.now() };
 }

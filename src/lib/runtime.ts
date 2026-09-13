@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
 import { fetchMarketSnapshot, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
@@ -478,12 +478,15 @@ export async function tickOnce(): Promise<DeskSnapshot> {
   let s = getState();
   try {
     const snap = await fetchMarketSnapshot();
+    const held = new Set(Object.keys(s.positions));
     s = {
       ...s,
-      quotes: prunePumpQuotes(
-        mergeQuotes(s.quotes, snap.quotes),
+      quotes: pruneStaleQuotes(
+        prunePumpQuotes(mergeQuotes(s.quotes, snap.quotes), snap.quotes, held),
         snap.quotes,
-        new Set(Object.keys(s.positions)),
+        held,
+        "crypto",
+        2 * 60 * 60 * 1000,
       ),
       liveQuotes: snap.live,
     };

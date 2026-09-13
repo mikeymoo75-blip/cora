@@ -81,6 +81,7 @@ export function Desk() {
   const dayPnl = equity - desk.dayStartEquity;
   const botsOn = desk.bots.filter((b) => b.enabled).length;
   const pumpLive = Object.values(desk.quotes).filter((q) => q.kind === "pump" && q.live).length;
+  const cryptoLive = Object.values(desk.quotes).filter((q) => q.kind === "crypto" && q.live).length;
   const last = desk.lastFill;
   const holdings = Object.values(desk.positions);
 
@@ -130,6 +131,7 @@ export function Desk() {
               </div>
               <p className="text-xs text-muted">
                 {botsOn} bot{botsOn === 1 ? "" : "s"} on ·{" "}
+                {cryptoLive > 0 ? `${cryptoLive} live crypto · ` : ""}
                 {pumpLive > 0
                   ? `${pumpLive} live Pump.fun coins · `
                   : "Pump.fun board estimated · "}
