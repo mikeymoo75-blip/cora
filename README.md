@@ -40,6 +40,7 @@ with 1-minute realized vol and a small momentum tilt. The bot buys the
 cheap side when the book is ≥6¢ off fair. If spot reverses it **buys the
 other leg** instead of dumping, then holds the pair to settle.
 
-Home shows a live Price-to-Beat race: countdown, UP/DOWN odds, and the
-spot line versus the open. Paper only.
+Home shows a live Price-to-Beat race: spot grows across the window, the live
+price rolls like a tick, and the board flashes when it crosses the open.
+Paper only.
 

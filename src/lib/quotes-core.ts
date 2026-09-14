@@ -266,27 +266,40 @@ async function polyEventBoard(): Promise<Quote[]> {
 
 async function fetchBinanceTape(
   symbol: string,
-): Promise<{ spot: number; rows: { t: number; o: number; c: number }[] } | null> {
+): Promise<{
+  spot: number;
+  rows: { t: number; o: number; c: number }[];
+  fine: { t: number; o: number; c: number }[];
+} | null> {
   try {
-    const [klines, ticker] = await Promise.all([
+    const [klines, fineRaw, ticker] = await Promise.all([
       fetchJson(
         `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=1m&limit=30`,
         6000,
       ),
+      fetchJson(
+        `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=1s&limit=1000`,
+        6000,
+      ).catch(() => []),
       fetchJson(`https://data-api.binance.vision/api/v3/ticker/price?symbol=${symbol}`, 4000),
     ]);
-    const raw = Array.isArray(klines) ? (klines as unknown[]) : [];
-    const rows: { t: number; o: number; c: number }[] = [];
-    for (const row of raw) {
-      if (!Array.isArray(row)) continue;
-      const t = Number(row[0]);
-      const o = Number(row[1]);
-      const c = Number(row[4]);
-      if (t > 0 && c > 0) rows.push({ t, o, c });
-    }
+    const parse = (raw: unknown) => {
+      const rows: { t: number; o: number; c: number }[] = [];
+      const list = Array.isArray(raw) ? (raw as unknown[]) : [];
+      for (const row of list) {
+        if (!Array.isArray(row)) continue;
+        const t = Number(row[0]);
+        const o = Number(row[1]);
+        const c = Number(row[4]);
+        if (t > 0 && c > 0) rows.push({ t, o, c });
+      }
+      return rows;
+    };
+    const rows = parse(klines);
+    const fine = parse(fineRaw);
     const spot = Number((ticker as { price?: string })?.price) || rows[rows.length - 1]?.c || 0;
     if (!spot || !rows.length) return null;
-    return { spot, rows };
+    return { spot, rows, fine };
   } catch {
     return null;
   }
@@ -307,19 +320,33 @@ function openFromTape(
 function windowCloses(
   rows: { t: number; o: number; c: number }[],
   windowStart: number,
+  open: number,
   spot: number,
 ): number[] {
-  const inside = rows.filter((r) => r.t >= windowStart).map((r) => r.c);
-  const tape = inside.length >= 2 ? inside : rows.map((r) => r.c).slice(-15);
-  if (!tape.length) return [spot];
-  if (tape[tape.length - 1] !== spot) tape.push(spot);
-  return tape.slice(-20);
+  const lookback = 60_000;
+  const tape: number[] = [];
+  let placedOpen = false;
+  for (const r of rows) {
+    if (r.t < windowStart - lookback) continue;
+    if (!placedOpen && r.t >= windowStart) {
+      if (open > 0 && tape[tape.length - 1] !== open) tape.push(open);
+      placedOpen = true;
+    }
+    if (tape.length && r.c === tape[tape.length - 1]) continue;
+    tape.push(r.c);
+  }
+  if (!placedOpen && open > 0) tape.push(open);
+  if (spot > 0 && tape[tape.length - 1] !== spot) tape.push(spot);
+  if (tape.length >= 2) return tape;
+  const fallback = rows.map((r) => r.c).slice(-30);
+  if (spot > 0 && fallback[fallback.length - 1] !== spot) fallback.push(spot);
+  return fallback.length ? fallback : [spot || open];
 }
 
 async function fetchUpDownRounds(): Promise<Quote[]> {
   const windows = currentWindows();
   const symbols = [...new Set(windows.map((w) => w.binance))];
-  const tapes = new Map<string, { spot: number; rows: { t: number; o: number; c: number }[] }>();
+  const tapes = new Map<string, { spot: number; rows: { t: number; o: number; c: number }[]; fine: { t: number; o: number; c: number }[] }>();
   await Promise.all(
     symbols.map(async (sym) => {
       const tape = await fetchBinanceTape(sym);
@@ -349,7 +376,8 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const { mom } = momFromCloses(closes);
         const tau = Math.max(0, (w.windowEnd - Date.now()) / 1000);
         const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : 0.5;
-        const spark = tape && open ? windowCloses(tape.rows, w.windowStart, spot) : [spot || upPx];
+        const fine = tape && tape.fine.length >= 8 ? tape.fine : tape?.rows;
+        const spark = tape && open ? windowCloses(fine || tape.rows, w.windowStart, open, spot) : [spot || upPx];
         const vol = Number(m.volume24hr ?? m.volume ?? 0);
         const bid = Number(m.bestBid);
         const ask = Number(m.bestAsk);

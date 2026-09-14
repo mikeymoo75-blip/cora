@@ -288,7 +288,10 @@ function save(state: DeskState) {
   const slim: DeskState = {
     ...state,
     quotes: Object.fromEntries(
-      Object.values(state.quotes).map((q) => [q.id, { ...q, spark: q.spark.slice(-48) }]),
+      Object.values(state.quotes).map((q) => [
+        q.id,
+        { ...q, spark: q.spark.slice(q.horizon ? -960 : -48) },
+      ]),
     ),
     fills: state.fills.slice(0, 400),
     equity: state.equity.slice(-480),

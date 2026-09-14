@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -16,7 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
-import { PriceRace } from "@/components/spark";
+import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
@@ -413,6 +413,10 @@ function RoundBoard({
 }) {
   const [, tick] = useState(0);
   const [pick, setPick] = useState("BTC-5m");
+  const [cross, setCross] = useState<null | "up" | "down">(null);
+  const shownRef = useRef(0);
+  const leadRef = useRef<boolean | null>(null);
+  const roundStampRef = useRef("");
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 250);
     return () => clearInterval(id);
@@ -443,14 +447,39 @@ function RoundBoard({
       return a.asset.localeCompare(b.asset);
     });
   const roundKeys = rounds.map((r) => r.key).join("|");
+  const featured = rounds.find((r) => r.key === pick) || rounds[0];
+  const q0 = featured?.up;
+  const stamp = featured && q0 ? `${featured.key}-${q0.windowStart}` : "";
+  const spot0 = q0?.spot || 0;
+  const open0 = q0?.openPx || 0;
+  const leading0 = spot0 >= open0;
   useEffect(() => {
     const keys = roundKeys.split("|").filter(Boolean);
     if (keys.length && !keys.includes(pick)) setPick(keys[0]!);
   }, [pick, roundKeys]);
-  if (!rounds.length) return null;
+  useEffect(() => {
+    if (!stamp) return;
+    if (roundStampRef.current !== stamp) {
+      roundStampRef.current = stamp;
+      shownRef.current = spot0;
+      leadRef.current = null;
+      setCross(null);
+      return;
+    }
+    if (leadRef.current === null) {
+      leadRef.current = leading0;
+      return;
+    }
+    if (leadRef.current !== leading0 && open0 > 0 && spot0 > 0) {
+      leadRef.current = leading0;
+      setCross(leading0 ? "up" : "down");
+      const t = setTimeout(() => setCross(null), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [stamp, leading0, open0, spot0]);
+  if (!featured || !q0) return null;
 
-  const featured = rounds.find((r) => r.key === pick) || rounds[0]!;
-  const q = featured.up!;
+  const q = q0;
   const total = featured.horizon === "15m" ? 900 : 300;
   const left = Math.max(0, ((q.windowEnd || now) - now) / 1000);
   const p = Math.max(0, Math.min(1, left / total));
@@ -459,8 +488,13 @@ function RoundBoard({
   const fair = q.fair ?? 0.5;
   const spot = q.spot || 0;
   const open = q.openPx || 0;
-  const delta = open ? ((spot - open) / open) * 100 : 0;
-  const leadingUp = spot >= open;
+  if (spot > 0) {
+    const cur = shownRef.current || spot;
+    shownRef.current = Math.abs(spot - cur) < 0.02 ? spot : cur + (spot - cur) * 0.28;
+  }
+  const shown = shownRef.current || spot;
+  const delta = open ? ((shown - open) / open) * 100 : 0;
+  const leadingUp = shown >= open;
   const mm = Math.floor(left / 60);
   const ss = Math.floor(left % 60)
     .toString()
@@ -476,13 +510,17 @@ function RoundBoard({
     })
     .slice(0, 6);
   const urgent = left < 30;
+  const flash = tape[0];
+  const flashUp = flash?.side === "buy" && flash.symbol === q.id && now - flash.ts < 8000;
+  const flashDn =
+    flash?.side === "buy" && featured.down && flash.symbol === featured.down.id && now - flash.ts < 8000;
 
   return (
     <section>
       <div className="mb-3">
         <h2 className="font-display text-2xl font-semibold">Live rounds</h2>
         <p className="text-sm text-muted">
-          BTC & ETH, 5 and 15 minutes. Fair vs Polymarket. Buys the cheap side — hedges the other, never dumps.
+          BTC & ETH racing Price-to-Beat. Cheap side when the book is off — hedge the other, never dump.
         </p>
       </div>
       <div className="mb-3 flex flex-wrap gap-2">
@@ -490,6 +528,7 @@ function RoundBoard({
           const rq = r.up!;
           const rLeft = Math.max(0, ((rq.windowEnd || now) - now) / 1000);
           const heldHere = !!(positions[rq.id] || (r.down && positions[r.down.id]));
+          const rLead = (rq.spot || 0) >= (rq.openPx || 0);
           return (
             <button
               key={r.key}
@@ -502,7 +541,7 @@ function RoundBoard({
             >
               {r.asset} {r.horizon}
               {heldHere ? " · in" : ""}
-              <span className="ml-1 font-mono text-xs tabular-nums opacity-80">
+              <span className={cn("ml-1 font-mono text-xs tabular-nums opacity-80", rLead ? "text-primary" : "text-down")}>
                 {Math.floor(rLeft / 60)}:{Math.floor(rLeft % 60).toString().padStart(2, "0")}
               </span>
             </button>
@@ -511,10 +550,20 @@ function RoundBoard({
       </div>
       <article
         className={cn(
-          "overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] md:p-5",
+          "relative overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] md:p-5",
           urgent && "round-lock",
         )}
       >
+        {cross && (
+          <div
+            className={cn(
+              "race-cross pointer-events-none absolute inset-x-0 top-0 z-10 px-4 py-2 text-center font-display text-lg font-semibold",
+              cross === "up" ? "bg-primary text-surface" : "bg-down text-surface",
+            )}
+          >
+            {cross === "up" ? "Up takes the lead" : "Down takes the lead"}
+          </div>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted uppercase">
@@ -522,7 +571,7 @@ function RoundBoard({
               Live · {featured.asset} {featured.horizon}
               {hedged ? " · hedged" : upPos ? " · long UP" : dnPos ? " · long DN" : ""}
             </p>
-            <div className="mt-3 flex flex-wrap gap-8">
+            <div className="mt-3 flex flex-wrap items-end gap-8">
               <div>
                 <p className="text-xs font-semibold tracking-wide text-muted uppercase">Price to Beat</p>
                 <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums tracking-tight md:text-3xl">
@@ -531,9 +580,10 @@ function RoundBoard({
               </div>
               <div>
                 <p className="text-xs font-semibold tracking-wide text-muted uppercase">Live</p>
-                <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums tracking-tight md:text-3xl">
-                  {fmtSpot(spot)}
-                </p>
+                <TickPrice
+                  value={shown}
+                  className="mt-0.5 text-3xl font-semibold md:text-4xl"
+                />
                 <p className={cn("text-xs font-medium tabular-nums", leadingUp ? "text-primary" : "text-down")}>
                   {open ? `${delta >= 0 ? "+" : ""}${delta.toFixed(3)}%` : "Waiting for open"}
                   {leadingUp ? " · UP winning" : " · DOWN winning"}
@@ -542,23 +592,30 @@ function RoundBoard({
             </div>
           </div>
           <div
-            className="round-ring grid size-20 shrink-0 place-items-center rounded-full"
+            className="round-ring grid size-24 shrink-0 place-items-center rounded-full"
             style={{
               ["--p" as string]: `${p * 360}deg`,
               ["--ring" as string]: urgent ? "var(--color-down)" : "var(--color-primary)",
             }}
           >
-            <span className="grid size-[3.75rem] place-items-center rounded-full bg-surface font-mono text-sm font-semibold tabular-nums">
+            <span className="grid size-20 place-items-center rounded-full bg-surface font-mono text-base font-semibold tabular-nums">
               {mm}:{ss}
             </span>
           </div>
         </div>
-        <div className="mt-4">
-          <PriceRace spark={q.spark} open={open} />
-          <div className="mt-1 flex justify-between text-[11px] text-muted">
+        <div className="mt-4 overflow-hidden rounded-xl bg-elevated px-1 pt-2 pb-1">
+          <PriceRace
+            spark={q.spark}
+            open={open}
+            spot={shown}
+            windowStart={q.windowStart}
+            windowEnd={q.windowEnd}
+            now={now}
+          />
+          <div className="mt-1 flex justify-between px-2 pb-1 text-xs text-muted">
             <span>Open</span>
-            <span className="font-mono">target {fmtSpot(open)}</span>
-            <span>Now</span>
+            <span className="font-mono">beat {fmtSpot(open)}</span>
+            <span>{mm}:{ss} left</span>
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -567,8 +624,10 @@ function RoundBoard({
             onClick={() => onBuy(q.id, 20)}
             className={cn(
               "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
-              leadingUp ? "bg-primary/15" : "bg-elevated",
+              leadingUp ? "bg-primary/15 race-lead-up" : "bg-elevated",
+              flashUp && "race-chip-flash",
             )}
+            style={flashUp ? { ["--flash" as string]: "var(--color-primary)" } : undefined}
           >
             <div className="flex items-baseline justify-between">
               <span className={cn("font-display text-xl font-semibold", leadingUp && "round-pulse text-primary")}>
@@ -586,8 +645,10 @@ function RoundBoard({
             onClick={() => featured.down && onBuy(featured.down.id, 20)}
             className={cn(
               "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
-              !leadingUp ? "bg-down/15" : "bg-elevated",
+              !leadingUp ? "bg-down/15 race-lead-dn" : "bg-elevated",
+              flashDn && "race-chip-flash",
             )}
+            style={flashDn ? { ["--flash" as string]: "var(--color-down)" } : undefined}
           >
             <div className="flex items-baseline justify-between">
               <span className={cn("font-display text-xl font-semibold", !leadingUp && "round-pulse text-down")}>
@@ -621,7 +682,7 @@ function RoundBoard({
             {tape.map((f) => {
               const qq = quotes.find((x) => x.id === f.symbol);
               return (
-                <li key={f.id} className="flex justify-between gap-3 font-mono text-[11px] text-muted">
+                <li key={f.id} className="flex justify-between gap-3 font-mono text-xs text-muted">
                   <span>
                     {f.source === "bot" ? "bot" : "you"} {f.side} {qq?.symbol ?? f.symbol} @{" "}
                     {(f.price * 100).toFixed(0)}¢

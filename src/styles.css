@@ -106,6 +106,62 @@
   }
 }
 
+.race-digit {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  line-height: 1;
+}
+.race-strip {
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.35s var(--ease-out);
+}
+.race-strip > span {
+  display: block;
+  height: 1em;
+  line-height: 1;
+}
+.race-punct {
+  padding-inline: 0.04em;
+}
+.race-lead-up {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+.race-lead-dn {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-down) 40%, transparent);
+}
+.race-chip-flash {
+  animation: race-chip-flash 0.7s var(--ease-out);
+}
+@keyframes race-chip-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--flash) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--flash) 0%, transparent);
+  }
+}
+.race-cross {
+  animation: race-cross 1.5s var(--ease-out) forwards;
+}
+@keyframes race-cross {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1485,11 +1485,11 @@ export function tickHeldExits(state: DeskState): DeskState {
 function horizonSpark(q: Quote, old?: Quote): number[] {
   const spots = (arr: number[] | undefined) => (arr || []).filter((v) => v > 2);
   const incoming = spots(q.spark);
-  if (incoming.length >= 2) return incoming.slice(-20);
+  if (incoming.length >= 8) return incoming.slice(-960);
   const prev = spots(old?.spark);
   const last = q.spot && q.spot > 2 ? q.spot : 0;
   const next = last ? [...prev, last] : prev;
-  return next.slice(-20);
+  return next.slice(-960);
 }
 
 export function mergeQuotes(
