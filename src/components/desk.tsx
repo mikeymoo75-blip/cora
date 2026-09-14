@@ -24,7 +24,7 @@ import { toast, Toaster } from "sonner";
 import { Spark } from "@/components/spark";
 import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
-import { ago, clock, compactMoney, money, pct, qtyFmt, signedClass, signedMoney } from "@/lib/format";
+import { ago, clock, compactMoney, durationFmt, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
 import type {
   BotScore,
@@ -1189,6 +1189,13 @@ function LogPane({
           })}
         </ul>
         <h2 className="mt-4 mb-2 text-sm font-semibold">Saved tests</h2>
+        <p className="mb-2 text-xs text-muted">
+          This test has been running {durationFmt(Date.now() - (desk.runStartedAt || Date.now()))}
+          {desk.runStartedAt
+            ? ` (since ${new Date(desk.runStartedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})`
+            : ""}
+          .
+        </p>
         {(!desk.tests || desk.tests.length === 0) && (
           <p className="text-xs text-muted">
             After a run, tap New $1,000 test to save it here and compare what worked.
@@ -1198,6 +1205,7 @@ function LogPane({
           {(desk.tests || []).map((t) => (
             <li key={t.id} className="rounded-lg bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
               <p className="text-sm font-medium">{t.name}</p>
+              <p className="text-xs text-muted">{runWindow(t.startedAt, t.endedAt)}</p>
               <p className={cn("font-mono text-xs", signedClass(t.netPnl))}>
                 {t.trades} trades · net {signedMoney(t.netPnl)} · fees {money(t.feesPaid)}
               </p>
