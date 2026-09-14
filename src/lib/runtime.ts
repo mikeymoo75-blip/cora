@@ -53,7 +53,7 @@ function defaultBots(): Bot[] {
       symbol: "BTC",
       kind: "crypto",
       strategy: "momentum",
-      sizeUsd: 35,
+      sizeUsd: 22,
       scope: "crypto",
       maxNames: 2,
       lastSignal: "idle",

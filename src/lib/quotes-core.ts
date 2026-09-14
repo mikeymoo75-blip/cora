@@ -194,67 +194,73 @@ type DexPair = {
   baseToken?: { address?: string; name?: string; symbol?: string };
   priceUsd?: string;
   priceChange?: { m5?: number; h1?: number };
-  volume?: { h24?: number };
+  volume?: { h24?: number; h1?: number; m5?: number };
+  liquidity?: { usd?: number };
 };
 
+function pairToPumpQuote(p: DexPair, seen: Set<string>): Quote | null {
+  if (p.chainId && p.chainId !== "solana") return null;
+  const mint = (p.baseToken?.address || "").trim();
+  if (!mint || seen.has(mint)) return null;
+  const price = Number(p.priceUsd);
+  if (!price || !Number.isFinite(price)) return null;
+  const vol = Number(p.volume?.h1 ?? 0) * 24 || Number(p.volume?.h24 ?? 0) || Number(p.volume?.m5 ?? 0) * 288;
+  const liq = Number(p.liquidity?.usd ?? 0);
+  if (vol < 2000 && liq < 3000) return null;
+  seen.add(mint);
+  const sym = (p.baseToken?.symbol || "MEME").toUpperCase().slice(0, 10);
+  return {
+    id: `pump:${mint}`,
+    symbol: sym,
+    name: p.baseToken?.name || sym,
+    kind: "pump",
+    price,
+    changePct: Number(p.priceChange?.m5 ?? p.priceChange?.h1 ?? 0),
+    volume: vol || liq,
+    spark: [price],
+    live: true,
+  };
+}
+
 async function dexPumpBoard(): Promise<Quote[]> {
-  try {
-    const json = (await fetchJson(
-      "https://api.dexscreener.com/latest/dex/search?q=pump.fun",
-      7000,
-    )) as { pairs?: DexPair[] };
-    const pairs = json.pairs || [];
-    const out: Quote[] = [];
-    const seen = new Set<string>();
-    for (const p of pairs) {
-      if (p.chainId && p.chainId !== "solana") continue;
-      const mint = p.baseToken?.address || "";
-      if (!mint.endsWith("pump")) continue;
-      if (seen.has(mint)) continue;
-      const price = Number(p.priceUsd);
-      if (!price || !Number.isFinite(price)) continue;
-      seen.add(mint);
-      const sym = (p.baseToken?.symbol || "MEME").toUpperCase().slice(0, 10);
-      out.push({
-        id: `pump:${mint}`,
-        symbol: sym,
-        name: p.baseToken?.name || sym,
-        kind: "pump",
-        price,
-        changePct: Number(p.priceChange?.m5 ?? p.priceChange?.h1 ?? 0),
-        volume: Number(p.volume?.h24 ?? 0),
-        spark: [price],
-        live: true,
-      });
-      if (out.length >= 40) break;
+  const seen = new Set<string>();
+  const out: Quote[] = [];
+  for (const q of ["pump.fun", "pump solana"]) {
+    try {
+      const json = (await fetchJson(
+        `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`,
+        7000,
+      )) as { pairs?: DexPair[] };
+      for (const p of json.pairs || []) {
+        const row = pairToPumpQuote(p, seen);
+        if (row) out.push(row);
+        if (out.length >= 50) return out;
+      }
+    } catch {
+      /* next query */
     }
-    return out;
-  } catch {
-    return [];
   }
+  return out;
 }
 
 async function pumpQuotes(solUsd: number): Promise<Quote[]> {
-  const primary = await pumpFunBoard(solUsd);
   const dex = await dexPumpBoard();
-  const byId = new Map(primary.map((q) => [q.id, q]));
-  for (const q of dex) {
+  const primary = await pumpFunBoard(solUsd);
+  const byId = new Map(dex.map((q) => [q.id, q]));
+  for (const q of primary) {
     const old = byId.get(q.id);
     if (old) {
       byId.set(q.id, {
         ...old,
-        price: q.price,
-        volume: q.volume || old.volume,
-        changePct: q.changePct || old.changePct,
-        spark: [q.price],
-        live: true,
+        volume: Math.max(old.volume || 0, q.volume || 0),
+        changePct: old.changePct || q.changePct,
       });
-    } else {
+    } else if ((q.volume || 0) >= 3000) {
       byId.set(q.id, q);
     }
   }
-  const merged = [...byId.values()];
-  if (merged.length) return merged;
+  const merged = [...byId.values()].sort((a, b) => (b.volume || 0) - (a.volume || 0));
+  if (merged.length) return merged.slice(0, 80);
   return PUMP_FALLBACK.map((s) => seedQuote(s));
 }
 
@@ -358,6 +364,7 @@ async function binanceCryptoBoard(): Promise<Quote[]> {
     const price = Number(row.lastPrice);
     if (!price || !Number.isFinite(price)) continue;
     const vol = Number(row.quoteVolume) || 0;
+    if (vol < 30_000_000) continue;
     scored.push({
       vol,
       q: {

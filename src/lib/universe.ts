@@ -85,7 +85,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   momentum: {
     label: "Runners",
-    blurb: "Looks at how much it is up today. Buys a liquid runner (4–16%) still ticking higher. Trails out before the drop — does not wait 20 minutes.",
+    blurb: "Looks at how much it is up today. Buys a liquid runner (6–12%, $30M+ volume). Lets winners run to ~8% and skips thin alts.",
   },
   dca: {
     label: "Dip buyer",

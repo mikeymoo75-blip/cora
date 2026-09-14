@@ -213,8 +213,8 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The dip either bounced enough to cover fees, hit a 5% stop, or sat long enough to give up.",
     },
     momentum: {
-      buy: "Runner: up 4–16% on the day, still ticking higher. Buys strength, not dips.",
-      sell: "Get out before the drop: trail after +2.5%, ROI 6%/3%/flat at 90 min, or three down ticks while green.",
+      buy: "Runner: up 6–12% on the day, $30M+ volume, still ticking higher. Skips thin alts like STEEM/LSK.",
+      sell: "Let it run: trail after +6%, ROI 8%/4%/flat at 2 hours, hard −5%. No scalp on the first wiggle.",
     },
     dca: {
       buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
@@ -375,9 +375,9 @@ const CRYPTO_ROI: RoiStep[] = [
   { afterMin: 180, pct: 0 },
 ];
 const RUNNER_ROI: RoiStep[] = [
-  { afterMin: 0, pct: 6 },
-  { afterMin: 15, pct: 3 },
-  { afterMin: 90, pct: 0 },
+  { afterMin: 0, pct: 8 },
+  { afterMin: 25, pct: 4 },
+  { afterMin: 120, pct: 0 },
 ];
 
 function roiStep(heldMs: number, table: RoiStep[]): RoiStep {
@@ -566,23 +566,22 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
     case "momentum":
       if (spark.length < 6) return "hold";
       {
-        const liquid = quote.kind !== "crypto" || quote.volume >= 5_000_000;
+        const liquid = quote.kind !== "crypto" || quote.volume >= 30_000_000;
         const falling = ticksFalling(spark, 2);
         const runner =
-          quote.live && quote.changePct >= 4 && quote.changePct <= 16 && ret8 > 0 && liquid && !falling;
+          quote.live && quote.changePct >= 6 && quote.changePct <= 12 && ret8 > 0 && liquid && !falling;
         if (!pos && runner) return "buy";
       }
       if (!pos) return "hold";
-      if (fromEntry <= -6) return "sell";
-      if (heldMs < 3 * 60 * 1000) return "hold";
+      if (fromEntry <= -5) return "sell";
+      if (heldMs < 8 * 60 * 1000) return "hold";
       {
         const hit = roiHit(heldMs, fromEntry, RUNNER_ROI);
         if (hit) return "sell";
         const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
-        if (fromEntry >= 2.5 && fromPeak <= -2) return "sell";
-        if (ticksFalling(spark, 3) && fromEntry > 0) return "sell";
+        if (fromEntry >= 6 && fromPeak <= -2.5) return "sell";
       }
-      if (heldMs > 90 * 60 * 1000) return "sell";
+      if (heldMs > 2 * 60 * 60 * 1000) return "sell";
       return "hold";
     case "dca":
       if (last < slow * 0.985 && !pos) return "buy";
@@ -611,8 +610,8 @@ export function technicalExplain(
   if (action === "sell" && bot.strategy === "momentum" && pos) {
     const fromEntry = pos.avg > 0 ? ((quote.price - pos.avg) / pos.avg) * 100 : 0;
     const fromPeak = pos.peak > 0 ? ((quote.price - pos.peak) / pos.peak) * 100 : 0;
-    if (fromEntry <= -6) return { action, why: `Runner stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
-    if (fromEntry >= 2.5 && fromPeak <= -2) {
+    if (fromEntry <= -5) return { action, why: `Runner stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
+    if (fromEntry >= 6 && fromPeak <= -2.5) {
       return { action, why: `Runner fading — peaked, then dropped ${Math.abs(fromPeak).toFixed(1)}%. Out before the dump.` };
     }
     return { action, why: whySignal("momentum", "sell") };
@@ -622,13 +621,13 @@ export function technicalExplain(
   if (bot.strategy === "momentum" && !pos) {
     if (quote.spark.length < 6) return { action, why: "Not enough ticks yet." };
     if (!quote.live) return { action, why: "Not a live price." };
-    if (quote.kind === "crypto" && quote.volume < 5_000_000) {
-      return { action, why: `Not liquid enough ($${(quote.volume / 1_000_000).toFixed(1)}M). Wants $5M+.` };
+    if (quote.kind === "crypto" && quote.volume < 30_000_000) {
+      return { action, why: `Too thin ($${(quote.volume / 1_000_000).toFixed(1)}M). Runners need $30M+ so STEEM/LSK do not sneak in.` };
     }
-    if (quote.changePct < 4) {
-      return { action, why: `Only ${quote.changePct.toFixed(1)}% on the day — not a runner yet (wants 4–16%).` };
+    if (quote.changePct < 6) {
+      return { action, why: `Only ${quote.changePct.toFixed(1)}% on the day — not a runner yet (wants 6–12%).` };
     }
-    if (quote.changePct > 16) {
+    if (quote.changePct > 12) {
       return { action, why: `Already up ${quote.changePct.toFixed(1)}% today — too late, the drop often starts here.` };
     }
     return { action, why: "Up on the day but the last ticks are not still running." };
@@ -702,11 +701,13 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
   }
   if (bot.scope === "pump") {
     return all
-      .filter((q) => q.kind === "pump" && q.live)
+      .filter((q) => q.kind === "pump" && q.live && (q.volume || 0) >= 8000)
       .sort((a, b) => (b.volume || 0) - (a.volume || 0))
-      .slice(0, 80);
+      .slice(0, 40);
   }
-  if (bot.scope === "crypto") return all.filter((q) => q.kind === "crypto" && q.live);
+  if (bot.scope === "crypto") {
+    return all.filter((q) => q.kind === "crypto" && q.live && (q.volume || 0) >= 30_000_000);
+  }
   if (bot.scope === "all") return all.filter((q) => q.kind === "stock" || q.live);
   return all.filter((q) => q.kind === bot.scope);
 }
@@ -723,7 +724,7 @@ function rankForBot(bot: Bot, quotes: Quote[]): Quote[] {
       else if (c < 0) s -= 30;
       s += Math.min(q.volume || 0, 80_000) / 8_000;
     } else {
-      if (c >= 4 && c <= 16) s += 80 - Math.abs(c - 9);
+      if (c >= 6 && c <= 12) s += 80 - Math.abs(c - 9);
       else if (c > 0) s += Math.min(c, 20);
       s += Math.min(q.volume || 0, 40_000_000) / 4_000_000;
     }
@@ -935,7 +936,12 @@ export function tickBots(state: DeskState): DeskState {
     const universe = scanQuotes(next, bot);
     if (!universe.length) {
       bot.lastSignal = "no quote";
-      bot.lastReason = "Nothing to scan yet.";
+      bot.lastReason =
+        bot.scope === "pump"
+          ? "No Pump.fun names with $8k+ Dex volume this pass."
+          : bot.scope === "crypto"
+            ? "No crypto names with $30M+ volume this pass."
+            : "Nothing to scan yet.";
       continue;
     }
 
@@ -1054,8 +1060,13 @@ export function tickBots(state: DeskState): DeskState {
         continue;
       }
       const coolUntil = bot.lastSold?.[quote.id] ?? 0;
-      if (Date.now() < coolUntil + 30 * 60 * 1000) {
-        const left = Math.max(1, Math.round((coolUntil + 30 * 60 * 1000 - Date.now()) / 60000));
+      const lastSell = next.fills.find((f) => f.botId === bot.id && f.symbol === quote.id && f.side === "sell");
+      const coolMs =
+        bot.strategy === "momentum" && lastSell && (lastSell.realizedPnl || 0) < 0
+          ? 2 * 60 * 60 * 1000
+          : 45 * 60 * 1000;
+      if (Date.now() < coolUntil + coolMs) {
+        const left = Math.max(1, Math.round((coolUntil + coolMs - Date.now()) / 60000));
         pass.push(scanNote(bot, quote, "skip", `Sold this recently — cooling ${left} min.`));
         continue;
       }
@@ -1069,7 +1080,8 @@ export function tickBots(state: DeskState): DeskState {
         continue;
       }
       const eq = walletEquity(next, wid);
-      const size = Math.min(bot.sizeUsd, next.wallets[wid].cash * 0.1, eq * 0.05);
+      const cap = quote.kind === "crypto" && bot.strategy === "momentum" ? Math.min(bot.sizeUsd, 22) : bot.sizeUsd;
+      const size = Math.min(cap, next.wallets[wid].cash * 0.1, eq * 0.05);
       if (size < 5) {
         pass.push(scanNote(bot, quote, "skip", "Not enough cash in this wallet for a ticket."));
         continue;
