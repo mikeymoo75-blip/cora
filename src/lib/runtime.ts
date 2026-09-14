@@ -4,6 +4,7 @@ import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
 import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
+import { riskView } from "./risk";
 import { fetchMarketSnapshot, refreshHeldAll, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, POLY_FALLBACK, seedQuote } from "./universe";
@@ -395,14 +396,16 @@ function setState(next: DeskState) {
 
 export function snapshot(): DeskSnapshot {
   const s = ensureWallets(getState());
+  const equityNow = markToMarket(s);
   return {
     ...s,
     stats: deskStats(s),
-    equityNow: markToMarket(s),
+    equityNow,
     scores: botScores(s),
     lastFill: s.fills[0] ?? null,
     stockMarketOpen: stockMarketOpen(),
     walletViews: walletViews(s),
+    risk: riskView(s, equityNow),
   };
 }
 

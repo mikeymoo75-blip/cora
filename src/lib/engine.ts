@@ -1,4 +1,14 @@
 import { calcFees, feeWouldEat, minTicketUsd, roundTripFee } from "./fees";
+import {
+  RISK,
+  blankWalletRisk,
+  copyQualityGate,
+  dynamicTicket,
+  monthStamp,
+  nameNotional,
+  strategyNotional,
+  touchWalletRisk,
+} from "./risk";
 import { slipBps } from "./universe";
 import { updownExplain } from "./updown";
 import type {
@@ -26,15 +36,6 @@ export const MAX_DEPLOYED = 0.45;
 export const CRYPTO_MIN_VOL = 50_000_000;
 const RUNNER_LO = 4;
 const RUNNER_HI = 9;
-const DAILY_LOSS: Record<StrategyId, number> = {
-  sma: 0.02,
-  dca: 0.02,
-  momentum: 0.02,
-  meanrev: 0.02,
-  sniper: 0.12,
-  scalp: 0.03,
-  copy: 0.02,
-};
 const DAILY_TRADES: Record<MarketKind, number> = { stock: 20, crypto: 30, poly: 32, pump: 8 };
 
 export function isEventKind(kind: MarketKind): boolean {
@@ -53,6 +54,7 @@ export function blankWallets(): Record<WalletId, Wallet> {
       dayStartEquity: CORE_START,
       halted: false,
       haltReason: "",
+      ...blankWalletRisk(CORE_START),
     },
     poly: {
       cash: POLY_START,
@@ -60,6 +62,7 @@ export function blankWallets(): Record<WalletId, Wallet> {
       dayStartEquity: POLY_START,
       halted: false,
       haltReason: "",
+      ...blankWalletRisk(POLY_START),
     },
   };
 }
@@ -67,6 +70,7 @@ export function blankWallets(): Record<WalletId, Wallet> {
 export function ensureWallets(state: DeskState): DeskState {
   const incoming = (state.wallets || {}) as Record<string, Wallet | undefined>;
   const polyFrom = incoming.poly || incoming.pump;
+  let next: DeskState;
   if (incoming.core && polyFrom) {
     let wallets: Record<WalletId, Wallet> = { core: incoming.core, poly: { ...polyFrom } };
     let positions = { ...(state.positions || {}) };
@@ -98,7 +102,7 @@ export function ensureWallets(state: DeskState): DeskState {
     if (poly.halted && (poly.cash >= 5 || holdingPoly)) {
       wallets = { ...wallets, poly: { ...poly, halted: false, haltReason: "" } };
     }
-    return {
+    next = {
       ...state,
       cash,
       wallets,
@@ -107,34 +111,51 @@ export function ensureWallets(state: DeskState): DeskState {
       reports: state.reports || [],
       scanTape: state.scanTape || [],
     };
+  } else {
+    const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
+    const coreCash = Math.round(cash * 0.8 * 100) / 100;
+    const polyCash = Math.round((cash - coreCash) * 100) / 100;
+    const wallets: Record<WalletId, Wallet> = {
+      core: {
+        cash: coreCash,
+        startingCash: CORE_START,
+        dayStartEquity: coreCash,
+        halted: false,
+        haltReason: "",
+        ...blankWalletRisk(coreCash),
+      },
+      poly: {
+        cash: polyCash,
+        startingCash: POLY_START,
+        dayStartEquity: polyCash,
+        halted: false,
+        haltReason: "",
+        ...blankWalletRisk(polyCash),
+      },
+    };
+    const built = { ...state, wallets, cash, reports: state.reports || [] };
+    next = {
+      ...built,
+      wallets: {
+        core: { ...wallets.core, dayStartEquity: walletEquity(built, "core") },
+        poly: { ...wallets.poly, dayStartEquity: walletEquity(built, "poly") },
+      },
+    };
   }
-  const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
-  const coreCash = Math.round(cash * 0.8 * 100) / 100;
-  const polyCash = Math.round((cash - coreCash) * 100) / 100;
-  const wallets: Record<WalletId, Wallet> = {
-    core: {
-      cash: coreCash,
-      startingCash: CORE_START,
-      dayStartEquity: coreCash,
-      halted: false,
-      haltReason: "",
-    },
-    poly: {
-      cash: polyCash,
-      startingCash: POLY_START,
-      dayStartEquity: polyCash,
-      halted: false,
-      haltReason: "",
-    },
-  };
-  const built = { ...state, wallets, cash, reports: state.reports || [] };
-  return {
-    ...built,
-    wallets: {
-      core: { ...wallets.core, dayStartEquity: walletEquity(built, "core") },
-      poly: { ...wallets.poly, dayStartEquity: walletEquity(built, "poly") },
-    },
-  };
+
+  const wallets = { ...next.wallets };
+  for (const id of ["core", "poly"] as WalletId[]) {
+    const w = wallets[id];
+    const eq = walletEquity({ ...next, wallets }, id);
+    const seeded: Wallet = {
+      ...w,
+      peakEquity: w.peakEquity || eq,
+      monthStamp: w.monthStamp || monthStamp(),
+      monthStartEquity: w.monthStartEquity || eq,
+    };
+    wallets[id] = touchWalletRisk(seeded, eq);
+  }
+  return { ...next, wallets };
 }
 
 export function walletEquity(state: DeskState, id: WalletId): number {
@@ -261,11 +282,6 @@ export function stockEntryWindow(at = Date.now()): boolean {
   if (mins < 9 * 60 + 40) return false;
   if (mins >= 15 * 60 + 45) return false;
   return true;
-}
-
-function msUntilEtMidnight(at = Date.now()): number {
-  const { mins } = nyMins(at);
-  return Math.max(60_000, (24 * 60 - mins) * 60 * 1000);
 }
 
 function expectedMovePct(strategy: StrategyId): number {
@@ -864,6 +880,8 @@ function skipSummary(pass: ScanNote[]): string {
     else if (r.includes("ripping") || r.includes("last tick")) key = "not ripping";
     else if (r.includes("high")) key = "off the high";
     else if (r.includes("move is") || (r.includes("only") && r.includes("day"))) key = "move too small";
+    else if (r.includes("smart money") || r.includes("profit factor") || r.includes("win rate")) key = "smart money";
+    else if (r.includes("strategy cap") || r.includes("copy cap") || r.includes("exposure")) key = "risk cap";
     else if (r.includes("day")) key = "not up 5–18%";
     buckets.set(key, (buckets.get(key) || 0) + 1);
   }
@@ -953,31 +971,6 @@ export function tickBots(state: DeskState): DeskState {
   for (const bot of bots) {
     if (!bot.enabled) continue;
 
-    const botFills = next.fills.filter((f) => f.botId === bot.id);
-    const botSells = botFills.filter((f) => f.side === "sell");
-    const todaySells = botSells.filter((f) => todayStamp(f.ts) === todayStamp());
-    const todayLosses = todaySells.filter((f) => (f.realizedPnl || 0) < 0);
-    let streak = 0;
-    for (const f of botSells) {
-      if ((f.realizedPnl || 0) < 0) streak += 1;
-      else break;
-    }
-    if (!bot.lockedUntil || bot.lockedUntil < Date.now()) {
-      const bank = next.wallets[bot.scope === "poly" ? "poly" : "core"]?.startingCash || CORE_START;
-      const dayPnl = todaySells.reduce((n, f) => n + (f.realizedPnl || 0), 0);
-      const cap = DAILY_LOSS[bot.strategy] ?? 0.02;
-      if (dayPnl <= -cap * bank) {
-        bot.lockedUntil = Date.now() + msUntilEtMidnight();
-        bot.lastReason = `${bot.name} hit its −${Math.round(cap * 100)}% daily loss. Off until tomorrow. Open bags still sell.`;
-      } else if (bot.strategy !== "sniper" && todayLosses.length >= 5) {
-        bot.lockedUntil = Date.now() + msUntilEtMidnight();
-        bot.lastReason = "5 losing sells today — this strategy is off until tomorrow. Open bags still sell.";
-      } else if (bot.strategy !== "sniper" && streak >= 3) {
-        bot.lockedUntil = Date.now() + 30 * 60 * 1000;
-        bot.lastReason = "3 losses in a row — 30 min pause on new buys. Open bags still sell.";
-      }
-    }
-
     if (bot.strategy === "copy") {
       const pendingAll = copyEvents.filter((e) => !e.consumed && e.leaderId === bot.leaderId);
       if (!pendingAll.length) {
@@ -1035,8 +1028,25 @@ export function tickBots(state: DeskState): DeskState {
           bot.lastReason = next.wallets.core.haltReason;
           break;
         }
+        const quality = copyQualityGate(bot, next.fills);
+        if (pending.side === "buy" && !quality.ok) {
+          bot.lastSignal = "smart money";
+          bot.lastReason = quality.why;
+          break;
+        }
         const eq = walletEquity(next, "core");
-        const size = Math.min(Math.min(bot.sizeUsd, 22), eq * 0.08, next.wallets.core.cash);
+        const copyBook = strategyNotional(next, "copy", "core");
+        if (pending.side === "buy" && eq > 0 && copyBook >= eq * RISK.maxCopyPct) {
+          bot.lastSignal = "copy cap";
+          bot.lastReason = `Copy book is ${Math.round((copyBook / eq) * 100)}% of the wallet (max ${Math.round(RISK.maxCopyPct * 100)}%).`;
+          break;
+        }
+        if (pending.side === "buy" && nameNotional(next, quote.id) >= eq * RISK.maxPerNamePct) {
+          pending.consumed = true;
+          continue;
+        }
+        const sized = dynamicTicket(next, bot, Math.min(bot.sizeUsd, 22), "core", eq);
+        const size = Math.min(sized.size, next.wallets.core.cash);
         if (pending.side === "buy" && feeWouldEat(quote.kind, quote.symbol, size)) {
           pending.consumed = true;
           bot.lastReason = `Skipped ${pending.ticker}: network fees would eat a $${size.toFixed(0)} ticket.`;
@@ -1281,6 +1291,22 @@ export function tickBots(state: DeskState): DeskState {
         continue;
       }
       const eq = walletEquity(next, wid);
+      const stratN = strategyNotional(next, bot.strategy, wid);
+      if (!hedging && eq > 0 && stratN >= eq * RISK.maxStrategyPct) {
+        pass.push(
+          scanNote(
+            bot,
+            quote,
+            "skip",
+            `Strategy cap: ${bot.strategy} already has ${Math.round((stratN / eq) * 100)}% of this wallet (max ${Math.round(RISK.maxStrategyPct * 100)}%).`,
+          ),
+        );
+        break;
+      }
+      if (nameNotional(next, quote.id) >= eq * RISK.maxPerNamePct) {
+        pass.push(scanNote(bot, quote, "skip", `This name is already ${Math.round(RISK.maxPerNamePct * 100)}% of the wallet.`));
+        continue;
+      }
       const cap =
         quote.kind === "crypto" && bot.strategy === "momentum"
           ? Math.min(bot.sizeUsd, 22)
@@ -1291,9 +1317,10 @@ export function tickBots(state: DeskState): DeskState {
               : bot.strategy === "sniper" || bot.strategy === "scalp"
                 ? Math.min(bot.sizeUsd, 10)
                 : bot.sizeUsd;
+      const sized = dynamicTicket(next, bot, cap, wid, eq);
       const sizeRaw = quote.horizon
-        ? Math.min(cap, next.wallets[wid].cash * 0.2, eq * 0.12)
-        : Math.min(cap, next.wallets[wid].cash * 0.1, eq * 0.05);
+        ? Math.min(sized.size, next.wallets[wid].cash * 0.2, eq * 0.12)
+        : Math.min(sized.size, next.wallets[wid].cash * 0.1, eq * RISK.maxPerNamePct);
       let size = sizeRaw;
       if (hedging && quote.horizon && quote.pairId) {
         const other = next.positions[quote.pairId];

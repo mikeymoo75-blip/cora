@@ -1,5 +1,6 @@
-import { sqnLabel, walletViews, walletIdFor, botScores } from "./engine";
+import { sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
 import { money, pct, signedMoney } from "./format";
+import { copyQualityGate, riskView } from "./risk";
 import type { DeskReport, DeskState } from "./types";
 import { STRATEGY_COPY } from "./universe";
 
@@ -66,6 +67,25 @@ export function buildReport(state: DeskState): DeskReport {
   );
   if (core.halted) lines.push(`  CORE PAUSED — ${core.haltReason}`);
   if (pump.halted) lines.push(`  POLY PAUSED — ${pump.haltReason}`);
+  lines.push("");
+
+  const risk = riskView(state, markToMarket(state));
+  lines.push("RISK (Polymarket v3.1 layers — paper shrinks tickets, does not halt)");
+  for (const layer of risk.layers) {
+    const bar = `${layer.usedPct.toFixed(0)}% of ${layer.limitPct.toFixed(0)}% ${layer.label.toLowerCase()} limit`;
+    lines.push(
+      `  ${layer.label.padEnd(10)} ${signedMoney(layer.usd)}  ${bar}  ${layer.status === "ok" ? "ok" : layer.status.toUpperCase()}`,
+    );
+  }
+  lines.push(`  Peak equity ${money(risk.peakEquity)}  drawdown ${risk.drawdownPct.toFixed(1)}%`);
+  lines.push(`  Ticket size now ${Math.round(risk.sizeMult * 100)}% of base. ${risk.sizeWhy}`);
+  const copyQ = state.bots.filter((b) => b.strategy === "copy" && b.enabled).map((b) => copyQualityGate(b, state.fills));
+  if (copyQ.length) {
+    lines.push("  SMART MONEY (copy bots — 55%+ wins, PF 1.3+, no one-hit wonders)");
+    for (const q of copyQ) {
+      lines.push(`    ${q.ok ? "pass" : "SKIP"} ${q.name}  ${q.why}`);
+    }
+  }
   lines.push("");
   lines.push("BOTS (worst to best by cashed-in P/L)");
   const active = scores.filter((s) => s.bot.enabled || s.trades > 0);
@@ -213,6 +233,14 @@ export function buildReport(state: DeskState): DeskReport {
   const on = state.bots.filter((b) => b.enabled).length;
   if (on >= 6) {
     hints.push(`  ${on} bots are on. They can stack into too many names. Try 2–3 on at a time.`);
+  }
+  if (risk.sizeMult < 0.7) {
+    hints.push(
+      `  Tickets are at ${Math.round(risk.sizeMult * 100)}% of base because a risk layer is hot. Paper is still trading.`,
+    );
+  }
+  if (copyQ.some((q) => !q.ok)) {
+    hints.push("  A copy bot failed the smart-money filter. Turn it Off or wait for a better streak.");
   }
   if (!hints.length) {
     hints.push("  Not enough closed trades yet. Let it run, then save another report.");

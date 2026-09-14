@@ -119,6 +119,9 @@ export type Wallet = {
   dayStartEquity: number;
   halted: boolean;
   haltReason: string;
+  peakEquity: number;
+  monthStamp: string;
+  monthStartEquity: number;
 };
 
 export type WalletView = {
@@ -149,6 +152,34 @@ export type DeskStats = {
   netPnl: number;
   winCount: number;
   lossCount: number;
+};
+
+export type RiskLayer = {
+  id: "daily" | "month" | "drawdown" | "total";
+  label: string;
+  usedPct: number;
+  limitPct: number;
+  usd: number;
+  status: "ok" | "warn" | "hot";
+};
+
+export type CopyQuality = {
+  botId: string;
+  name: string;
+  ok: boolean;
+  why: string;
+  winRate: number;
+  profitFactor: number;
+  sells: number;
+};
+
+export type RiskView = {
+  layers: RiskLayer[];
+  sizeMult: number;
+  sizeWhy: string;
+  copyQuality: CopyQuality[];
+  peakEquity: number;
+  drawdownPct: number;
 };
 
 export type BotScore = {
@@ -220,4 +251,5 @@ export type DeskSnapshot = DeskState & {
   lastFill: Fill | null;
   stockMarketOpen: boolean;
   walletViews: WalletView[];
+  risk: RiskView;
 };

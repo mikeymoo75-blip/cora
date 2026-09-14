@@ -11,6 +11,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Shield,
   Trash2,
   Users,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import type {
   MarketKind,
   Position,
   Quote,
+  RiskLayer,
   ScanNote,
   ScanScope,
   StrategyId,
@@ -248,6 +250,10 @@ export function Desk() {
         </div>
       </section>
 
+      <div className="mt-3 px-4 md:px-8">
+        <RiskBoard desk={desk} />
+      </div>
+
       <nav className="mt-5 flex gap-1 overflow-x-auto px-4 md:px-8">
         {TABS.map((t) => (
           <button
@@ -334,6 +340,58 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
         <span className="font-semibold">{signedMoney(wallet.netPnl)}</span>
       </p>
     </div>
+  );
+}
+
+function layerTone(status: RiskLayer["status"]) {
+  if (status === "hot") return "bg-down";
+  if (status === "warn") return "bg-warn";
+  return "bg-core";
+}
+
+function RiskBoard({ desk }: { desk: DeskSnapshot }) {
+  const risk = desk.risk;
+  if (!risk) return null;
+  const copyFail = risk.copyQuality.filter((q) => !q.ok);
+  return (
+    <section className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
+      <div className="mb-3 flex items-center gap-2">
+        <Shield className="size-5 text-core" />
+        <div>
+          <h2 className="font-display text-xl font-semibold">Risk layers</h2>
+          <p className="text-xs text-muted">
+            4-layer paper protection. Tickets shrink when a layer heats up — bots keep running.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {risk.layers.map((layer) => (
+          <div key={layer.id} className="rounded-xl bg-elevated p-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-xs font-semibold tracking-wide text-muted uppercase">{layer.label}</p>
+              <p className="font-mono text-xs text-muted">{layer.limitPct.toFixed(0)}% cap</p>
+            </div>
+            <p className={cn("mt-1 font-display text-lg font-semibold tabular-nums", signedClass(layer.usd))}>
+              {signedMoney(layer.usd)}
+            </p>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
+              <div
+                className={cn("h-full rounded-full transition-[width] duration-300", layerTone(layer.status))}
+                style={{ width: `${Math.min(100, layer.usedPct)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        Tickets at {Math.round(risk.sizeMult * 100)}% of base. {risk.sizeWhy}
+      </p>
+      {copyFail.length > 0 && (
+        <p className="mt-2 text-sm text-warn">
+          Smart money: {copyFail.map((q) => q.name.replace(/^Copy /, "")).join(", ")} paused for new copies.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -1030,9 +1088,15 @@ function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: strin
                     </div>
                     <p className="mt-2 text-sm leading-relaxed text-muted">{leader?.blurb}</p>
                     <p className="mt-1 text-xs text-muted">{b.lastReason || "Off."}</p>
+                    {desk.risk?.copyQuality.find((q) => q.botId === b.id)?.ok === false && (
+                      <p className="mt-1 text-xs text-warn">
+                        {desk.risk.copyQuality.find((q) => q.botId === b.id)?.why}
+                      </p>
+                    )}
                     {score && score.trades > 0 && (
                       <p className={cn("mt-1 font-mono text-xs", score.netPnl >= 0 ? "text-primary" : "text-down")}>
                         {score.trades} copies · net {money(score.netPnl)}
+                        {score.sells >= 8 ? ` · PF ${score.profitFactor.toFixed(2)}` : ""}
                       </p>
                     )}
                     {events.map((e) => (
