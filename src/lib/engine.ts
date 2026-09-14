@@ -816,15 +816,8 @@ export function tickBots(state: DeskState): DeskState {
       }
       continue;
     }
-    if (w.halted) continue;
-    const eq = walletEquity(next, id);
-    const lossPct = ((eq - w.dayStartEquity) / Math.max(w.dayStartEquity, 1)) * 100;
-    if (lossPct <= -next.maxDailyLossPct) {
-      wallets[id] = {
-        ...w,
-        halted: true,
-        haltReason: `Stocks + crypto wallet paused: down ${lossPct.toFixed(1)}% today. Pump.fun keeps running.`,
-      };
+    if (w.halted) {
+      wallets[id] = { ...w, halted: false, haltReason: "" };
     }
   }
   next = {
@@ -842,27 +835,7 @@ export function tickBots(state: DeskState): DeskState {
 
   for (const bot of bots) {
     if (!bot.enabled) continue;
-
-    if (bot.strategy !== "copy") {
-      const since = Date.now() - 20 * 60 * 1000;
-      const losses = next.fills.filter(
-        (f) => f.botId === bot.id && f.side === "sell" && f.ts >= since && (f.realizedPnl || 0) < -0.15,
-      );
-      if (!bot.lockedUntil || bot.lockedUntil < Date.now()) {
-        if (losses.length >= 3) {
-          bot.lockedUntil = Date.now() + 30 * 60 * 1000;
-          bot.lastReason = "Stoploss guard: 3 losing sells in 20 minutes. No new buys for 30 minutes.";
-        } else {
-          const kind = bot.scope === "pump" ? "pump" : "core";
-          const bank = next.wallets[kind]?.startingCash || (kind === "pump" ? 200 : 800);
-          const pnl = botBookPnl(next, bot.id);
-          if (bank > 0 && pnl <= -0.1 * bank) {
-            bot.lockedUntil = Date.now() + 2 * 60 * 60 * 1000;
-            bot.lastReason = `Kill switch: this bot is down $${Math.abs(pnl).toFixed(2)} (10% of its wallet). No new buys for 2 hours. Open bags still sell.`;
-          }
-        }
-      }
-    }
+    bot.lockedUntil = 0;
 
     if (bot.strategy === "copy") {
       const pendingAll = copyEvents.filter((e) => !e.consumed && e.leaderId === bot.leaderId);
@@ -1045,15 +1018,6 @@ export function tickBots(state: DeskState): DeskState {
         : 0;
     for (const quote of ranked.slice(0, 40)) {
       if (next.positions[quote.id]) continue;
-      if (bot.lockedUntil && bot.lockedUntil > Date.now()) {
-        const left = Math.max(1, Math.round((bot.lockedUntil - Date.now()) / 60000));
-        const why = /Kill switch/i.test(bot.lastReason || "")
-          ? `Kill switch — no new buys for ${left} min. Open bags still sell.`
-          : `Stoploss guard — no new buys for ${left} min after a losing streak.`;
-        pass.push(scanNote(bot, quote, "skip", why));
-        bot.lastReason = why;
-        break;
-      }
       if (fillDelay) {
         pass.push(scanNote(bot, quote, "skip", `Filled-order delay: wait ${fillDelay}s after the last fill.`));
         break;
