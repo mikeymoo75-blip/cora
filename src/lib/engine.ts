@@ -499,6 +499,9 @@ export function polyExplain(
   other?: Position,
 ): { action: "buy" | "sell" | "hold"; why: string } {
   if (quote.horizon) return updownExplain(quote, pos, other);
+  if (pos && style === "sniper") {
+    return { action: "sell", why: "Round left the live board — settling leftover." };
+  }
   if (style === "sniper") {
     return { action: "hold", why: "5m/15m bot skips longer events — those use Fade." };
   }

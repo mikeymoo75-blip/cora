@@ -224,9 +224,12 @@ export function dynamicTicket(
     consecutiveLosses: streak.losses,
     consecutiveWins: streak.wins,
   });
-  const floor = Math.max(5, equity * RISK.minPositionPct);
-  const cap = equity * RISK.maxPositionPct;
-  const size = Math.max(floor, Math.min(cap, base * mult, equity * RISK.maxPerNamePct));
+  const poly = walletId === "poly";
+  const floor = Math.max(poly ? 12 : 5, equity * RISK.minPositionPct);
+  const capPct = poly ? 0.12 : RISK.maxPositionPct;
+  const cap = equity * capPct;
+  const perName = equity * (poly ? Math.max(RISK.maxPerNamePct, 0.12) : RISK.maxPerNamePct);
+  const size = Math.max(floor, Math.min(cap, base * mult, perName));
   return { size, why, mult };
 }
 

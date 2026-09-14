@@ -1,7 +1,9 @@
 export function money(n: number, digits = 2): string {
-  const abs = Math.abs(n);
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  const abs = Math.abs(x);
   const d = abs >= 1000 ? 2 : abs >= 1 ? digits : abs >= 0.01 ? 4 : 6;
-  return n.toLocaleString("en-US", {
+  return x.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: d,
