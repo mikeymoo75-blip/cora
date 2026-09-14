@@ -52,6 +52,11 @@ export function ensureWallets(state: DeskState): DeskState {
         wallets = { ...wallets, [id]: { ...w, dayStartEquity: eq } };
       }
     }
+    const pump = wallets.pump;
+    const holdingPump = Object.values(state.positions || {}).some((p) => p.kind === "pump");
+    if (pump.halted && (pump.cash >= 5 || holdingPump)) {
+      wallets = { ...wallets, pump: { ...pump, halted: false, haltReason: "" } };
+    }
     return { ...state, cash, wallets, reports: state.reports || [] };
   }
   const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + PUMP_START;
@@ -528,6 +533,19 @@ export function tickBots(state: DeskState): DeskState {
   const wallets = { ...next.wallets };
   for (const id of ["core", "pump"] as WalletId[]) {
     const w = wallets[id];
+    if (id === "pump") {
+      const holding = Object.values(next.positions).some((p) => p.kind === "pump");
+      if (w.cash < 5 && !holding) {
+        wallets[id] = {
+          ...w,
+          halted: true,
+          haltReason: "Pump.fun wallet is empty. It will trade again if you add cash or start a new test.",
+        };
+      } else if (w.halted) {
+        wallets[id] = { ...w, halted: false, haltReason: "" };
+      }
+      continue;
+    }
     if (w.halted) continue;
     const eq = walletEquity(next, id);
     const lossPct = ((eq - w.dayStartEquity) / Math.max(w.dayStartEquity, 1)) * 100;
@@ -535,10 +553,7 @@ export function tickBots(state: DeskState): DeskState {
       wallets[id] = {
         ...w,
         halted: true,
-        haltReason:
-          id === "pump"
-            ? `Pump.fun wallet paused: down ${lossPct.toFixed(1)}% today. Stocks + crypto keep running.`
-            : `Stocks + crypto wallet paused: down ${lossPct.toFixed(1)}% today. Pump.fun keeps running.`,
+        haltReason: `Stocks + crypto wallet paused: down ${lossPct.toFixed(1)}% today. Pump.fun keeps running.`,
       };
     }
   }
