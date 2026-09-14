@@ -1107,6 +1107,18 @@ function LogPane({
   onOpenMarkets: () => void;
   onCopyReport: (text: string) => void;
 }) {
+  const [logTab, setLogTab] = useState<"all" | MarketKind>("all");
+  const logTabs: { id: "all" | MarketKind; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "stock", label: "Stocks" },
+    { id: "crypto", label: "Crypto" },
+    { id: "pump", label: "Pump.fun" },
+  ];
+  const fills =
+    logTab === "all" ? desk.fills : desk.fills.filter((f) => f.kind === logTab);
+  const sellPnl = fills.filter((f) => f.side === "sell").reduce((n, f) => n + (f.realizedPnl || 0), 0);
+  const fees = fills.reduce((n, f) => n + f.fee, 0);
+
   return (
     <div className="grid gap-4 p-4 md:grid-cols-2">
       <div>
@@ -1198,9 +1210,44 @@ function LogPane({
       </div>
       <div>
         <h2 className="mb-2 text-sm font-semibold">Trade log</h2>
+        <div className="mb-2 flex gap-1 overflow-x-auto">
+          {logTabs.map((t) => {
+            const n = t.id === "all" ? desk.fills.length : desk.fills.filter((f) => f.kind === t.id).length;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setLogTab(t.id)}
+                className={cn(
+                  "min-h-11 shrink-0 rounded-md px-3 text-sm font-medium",
+                  logTab === t.id ? "bg-elevated text-fg" : "text-muted",
+                )}
+              >
+                {t.label}
+                <span className="ml-1 font-mono text-xs text-muted">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+        {fills.length > 0 && (
+          <p className="mb-2 font-mono text-xs">
+            <span className={signedClass(sellPnl)}>{signedMoney(sellPnl)}</span>
+            <span className="text-muted"> cashed in · fees {money(fees)}</span>
+          </p>
+        )}
         <ul className="max-h-[70dvh] space-y-2 overflow-y-auto">
-          {desk.fills.length === 0 && <li className="text-xs text-muted">No trades yet.</li>}
-          {desk.fills.slice(0, 60).map((f) => (
+          {fills.length === 0 && (
+            <li className="text-xs text-muted">
+              {logTab === "all"
+                ? "No trades yet."
+                : logTab === "pump"
+                  ? "No Pump.fun trades yet."
+                  : logTab === "crypto"
+                    ? "No crypto trades yet."
+                    : "No stock trades yet."}
+            </li>
+          )}
+          {fills.slice(0, 80).map((f) => (
             <FillRow key={f.id} fill={f} symbol={desk.quotes[f.symbol]?.symbol ?? f.symbol} />
           ))}
         </ul>
