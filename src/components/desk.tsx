@@ -398,6 +398,11 @@ function fmtSpot(n: number) {
   return n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 2 : 4 });
 }
 
+function clockLeft(sec: number) {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+}
+
 function RoundBoard({
   quotes,
   positions,
@@ -495,10 +500,6 @@ function RoundBoard({
   const shown = shownRef.current || spot;
   const delta = open ? ((shown - open) / open) * 100 : 0;
   const leadingUp = shown >= open;
-  const mm = Math.floor(left / 60);
-  const ss = Math.floor(left % 60)
-    .toString()
-    .padStart(2, "0");
   const edge = Math.abs(fair - upPx);
   const upPos = q.id ? positions[q.id] : undefined;
   const dnPos = featured.down?.id ? positions[featured.down.id] : undefined;
@@ -520,7 +521,7 @@ function RoundBoard({
       <div className="mb-3">
         <h2 className="font-display text-2xl font-semibold">Live rounds</h2>
         <p className="text-sm text-muted">
-          BTC, ETH, SOL, XRP, DOGE, BNB, HYPE racing Price-to-Beat. Cheap side when the book is off — hedge the other, never dump.
+          Big number is time left. 5m / 15m is the round length — that part never changes.
         </p>
       </div>
       <div className="mb-3 flex flex-wrap gap-2">
@@ -535,14 +536,16 @@ function RoundBoard({
               type="button"
               onClick={() => setPick(r.key)}
               className={cn(
-                "min-h-11 rounded-full px-4 text-sm font-semibold transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+                "min-h-12 rounded-2xl px-3 py-1.5 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
                 pick === r.key ? "bg-fg text-bg" : "bg-surface text-muted shadow-[var(--shadow-card)]",
               )}
             >
-              {r.asset} {r.horizon}
-              {heldHere ? " · in" : ""}
-              <span className={cn("ml-1 font-mono text-xs tabular-nums opacity-80", rLead ? "text-primary" : "text-down")}>
-                {Math.floor(rLeft / 60)}:{Math.floor(rLeft % 60).toString().padStart(2, "0")}
+              <span className="block text-[11px] font-semibold tracking-wide uppercase">
+                {r.asset} {r.horizon}
+                {heldHere ? " · in" : ""}
+              </span>
+              <span className={cn("block font-mono text-lg font-semibold tabular-nums tracking-tight", pick === r.key ? "" : rLead ? "text-primary" : "text-down")}>
+                {clockLeft(rLeft)}
               </span>
             </button>
           );
@@ -598,8 +601,11 @@ function RoundBoard({
               ["--ring" as string]: urgent ? "var(--color-down)" : "var(--color-primary)",
             }}
           >
-            <span className="grid size-20 place-items-center rounded-full bg-surface font-mono text-base font-semibold tabular-nums">
-              {mm}:{ss}
+            <span className="grid size-[4.75rem] place-items-center rounded-full bg-surface text-center leading-none">
+              <span className="font-mono text-2xl font-semibold tabular-nums">{clockLeft(left)}</span>
+              <span className="mt-0.5 text-[10px] font-semibold tracking-wide text-muted uppercase">
+                left of {featured.horizon === "15m" ? "15:00" : "5:00"}
+              </span>
             </span>
           </div>
         </div>
@@ -615,7 +621,7 @@ function RoundBoard({
           <div className="mt-1 flex justify-between px-2 pb-1 text-xs text-muted">
             <span>Open</span>
             <span className="font-mono">beat {fmtSpot(open)}</span>
-            <span>{mm}:{ss} left</span>
+            <span className="font-mono tabular-nums">{clockLeft(left)} left</span>
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
