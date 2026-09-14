@@ -16,7 +16,7 @@ export const Route = createRootRoute({
         content:
           "Paper trading desk for stocks, crypto, and Pump.fun-style memecoins. Simulated fills only.",
       },
-      { name: "theme-color", content: "#07080a" },
+      { name: "theme-color", content: "#f3eee4" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
@@ -31,7 +31,7 @@ export const Route = createRootRoute({
       },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Nunito+Sans:wght@400;500;600;700;800&display=swap",
       },
     ],
   }),
