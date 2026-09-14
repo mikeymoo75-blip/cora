@@ -1,4 +1,4 @@
-import { sqnLabel, walletViews, walletIdFor } from "./engine";
+import { sqnLabel, walletViews, walletIdFor, botScores } from "./engine";
 import { money, pct, signedMoney } from "./format";
 import type { DeskReport, DeskState } from "./types";
 import { STRATEGY_COPY } from "./universe";
@@ -29,6 +29,8 @@ export function buildReport(state: DeskState): DeskReport {
     const sqn = pnls.length > 1 && sd > 0 ? (Math.sqrt(pnls.length) * mean(pnls)) / sd : 0;
     const avgWin = wins.length ? mean(wins.map((f) => f.realizedPnl || 0)) : 0;
     const avgLoss = losses.length ? mean(losses) : 0;
+    const winSum = wins.reduce((n, f) => n + (f.realizedPnl || 0), 0);
+    const lossSum = Math.abs(losses.reduce((a, b) => a + b, 0));
     return {
       bot,
       trades: fills.length,
@@ -41,6 +43,7 @@ export function buildReport(state: DeskState): DeskReport {
       sqn,
       avgWin,
       avgLoss,
+      profitFactor: lossSum > 0 ? winSum / lossSum : wins.length ? 99 : 0,
     };
   });
   scores.sort((a, b) => a.net - b.net);
@@ -78,6 +81,23 @@ export function buildReport(state: DeskState): DeskReport {
         `      SQN ${s.sqn.toFixed(2)} (${sqnLabel(s.sqn, s.sells)}) · avg win ${money(s.avgWin)} · avg loss ${money(s.avgLoss)}`,
       );
     }
+  }
+  lines.push("");
+  lines.push("EXPECTANCY (ranked by net — kill the ones that do not pay)");
+  const ranked = botScores(state)
+    .filter((s) => s.sells > 0 || s.enabled)
+    .sort((a, b) => a.netPnl - b.netPnl);
+  if (!ranked.some((s) => s.sells > 0)) {
+    lines.push("  Not enough closed trades yet.");
+  }
+  for (const s of ranked) {
+    if (!s.sells && !s.enabled) continue;
+    const hold = s.avgHoldMs ? `${Math.max(1, Math.round(s.avgHoldMs / 60000))}m avg hold` : "no holds";
+    const pf = s.sells ? `  PF ${s.profitFactor.toFixed(2)}` : "";
+    const slip = s.avgSlipBps ? `  slip ${s.avgSlipBps.toFixed(0)}bps` : "";
+    lines.push(
+      `  ${s.enabled ? "ON " : "off"} ${s.name}  ${s.sells} sells  net ${money(s.realizedPnl)}  fees ${money(s.fees)}${pf}  ${hold}${slip}`,
+    );
   }
   lines.push("");
   lines.push("SCANNER (last pass — why it bought, sold, or skipped)");
@@ -153,15 +173,17 @@ export function buildReport(state: DeskState): DeskReport {
     const name = state.quotes[f.symbol]?.symbol ?? f.symbol;
     const when = new Date(f.ts).toLocaleTimeString("en-US");
     const gas = f.gasFee ? `  gas ${money(f.gasFee)}` : "";
+    const slip = f.slipBps ? `  slip ${f.slipBps.toFixed(0)}bps` : "";
     if (f.side === "buy") {
       lines.push(
-        `  ${when}  BUY ${name}  paid ${money(f.notional)}  fees ${money(f.fee)}${gas}  total out ${money(f.notional + f.fee)}  ${who}`,
+        `  ${when}  BUY ${name}  paid ${money(f.notional)}  fees ${money(f.fee)}${gas}${slip}  total out ${money(f.notional + f.fee)}  ${who}`,
       );
     } else {
       const netIn = f.notional - f.fee;
       const boughtFor = netIn - f.realizedPnl;
+      const hold = f.holdMs ? `  held ${Math.max(1, Math.round(f.holdMs / 60000))}m` : "";
       lines.push(
-        `  ${when}  SELL ${name}  sold ${money(f.notional)}  fees ${money(f.fee)}${gas}  net in ${money(netIn)}  bought for ${money(boughtFor)}  P/L ${signedMoney(f.realizedPnl)}  ${who}`,
+        `  ${when}  SELL ${name}  sold ${money(f.notional)}  fees ${money(f.fee)}${gas}${slip}${hold}  net in ${money(netIn)}  bought for ${money(boughtFor)}  P/L ${signedMoney(f.realizedPnl)}  ${who}`,
       );
     }
     if (f.reason) lines.push(`      ${f.reason}`);
@@ -175,10 +197,8 @@ export function buildReport(state: DeskState): DeskReport {
         `  ${s.bot.name} is down ${money(s.net)} after ${s.sells} sells (win ${pct(s.winRate, 0)}). Consider Off, or a smaller ticket.`,
       );
     }
-    if (s.sells >= 8 && s.sqn < 1) {
-      hints.push(
-        `  ${s.bot.name} SQN ${s.sqn.toFixed(2)} is noise (Van Tharp). Wins do not pay for losses. Turn it Off.`,
-      );
+    if (s.sells >= 5 && s.profitFactor < 1 && s.net < 0) {
+      hints.push(`  ${s.bot.name} profit factor under 1. It does not pay. Turn it Off.`);
     }
   }
   if (pump.netPnl < -pump.startingCash * 0.15) {

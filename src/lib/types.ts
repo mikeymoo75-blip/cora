@@ -13,6 +13,8 @@ export type Quote = {
   spark: number[];
   live: boolean;
   seenAt?: number;
+  /** Bid-ask in basis points when we have a book. */
+  spreadBps?: number;
 };
 
 export type Position = {
@@ -46,6 +48,9 @@ export type Fill = {
   leaderName?: string;
   reason: string;
   note?: string;
+  expectedPrice?: number;
+  slipBps?: number;
+  holdMs?: number;
 };
 
 export type ScanScope = "one" | "stock" | "crypto" | "pump" | "all";
@@ -152,6 +157,9 @@ export type BotScore = {
   payoff: number;
   loseStreak: number;
   sells: number;
+  profitFactor: number;
+  avgHoldMs: number;
+  avgSlipBps: number;
 };
 
 export type TestRun = {

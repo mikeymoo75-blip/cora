@@ -363,8 +363,28 @@ type BinanceTicker = {
   volume?: string;
 };
 
+async function binanceBooks(): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  try {
+    const json = await fetchJson("https://data-api.binance.vision/api/v3/ticker/bookTicker", 8000);
+    if (!Array.isArray(json)) return map;
+    for (const r of json as { symbol?: string; bidPrice?: string; askPrice?: string }[]) {
+      const bid = Number(r.bidPrice);
+      const ask = Number(r.askPrice);
+      if (!(bid > 0) || !(ask > bid)) continue;
+      map.set(r.symbol || "", ((ask - bid) / ((ask + bid) / 2)) * 10_000);
+    }
+  } catch {
+    /* spread filter just skips missing */
+  }
+  return map;
+}
+
 async function binanceCryptoBoard(): Promise<Quote[]> {
-  const json = await fetchJson("https://data-api.binance.vision/api/v3/ticker/24hr", 10000);
+  const [json, books] = await Promise.all([
+    fetchJson("https://data-api.binance.vision/api/v3/ticker/24hr", 10000),
+    binanceBooks(),
+  ]);
   const rows = Array.isArray(json) ? (json as BinanceTicker[]) : [];
   const stockIds = new Set(STOCKS.map((s) => s.id));
   const scored: { q: Quote; vol: number }[] = [];
@@ -377,7 +397,7 @@ async function binanceCryptoBoard(): Promise<Quote[]> {
     const price = Number(row.lastPrice);
     if (!price || !Number.isFinite(price)) continue;
     const vol = Number(row.quoteVolume) || 0;
-    if (vol < 30_000_000) continue;
+    if (vol < 50_000_000) continue;
     scored.push({
       vol,
       q: {
@@ -390,6 +410,7 @@ async function binanceCryptoBoard(): Promise<Quote[]> {
         volume: vol,
         spark: [price],
         live: true,
+        spreadBps: books.get(pair),
       },
     });
   }
@@ -415,6 +436,8 @@ async function paprikaCryptoBoard(): Promise<Quote[]> {
     const usd = row.quotes?.USD;
     const price = Number(usd?.price);
     if (!price || !Number.isFinite(price)) continue;
+    const vol = Number(usd?.volume_24h) || 0;
+    if (vol < 50_000_000) continue;
     out.push({
       id: sym,
       symbol: sym,
@@ -422,7 +445,7 @@ async function paprikaCryptoBoard(): Promise<Quote[]> {
       kind: "crypto",
       price,
       changePct: Number(usd?.percent_change_24h) || 0,
-      volume: Number(usd?.volume_24h) || 0,
+      volume: vol,
       spark: [price],
       live: true,
     });
@@ -434,7 +457,7 @@ async function paprikaCryptoBoard(): Promise<Quote[]> {
 async function cryptoBoard(): Promise<Quote[]> {
   try {
     const live = await binanceCryptoBoard();
-    if (live.length >= 40) return live;
+    if (live.length >= 12) return live;
   } catch {
     /* paprika backup */
   }

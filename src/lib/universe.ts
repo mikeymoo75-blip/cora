@@ -77,7 +77,7 @@ export function slipBps(kind: MarketKind): number {
 export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }> = {
   sma: {
     label: "Trend follow",
-    blurb: "Buys when the short-term average crosses above the long one. Sells when it crosses back down.",
+    blurb: "Buys when the short-term average crosses above the long one. −3.5% stop. No new buys in the first 10 min or last 15 min.",
   },
   meanrev: {
     label: "Buy the dip",
@@ -85,15 +85,15 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   momentum: {
     label: "Runners",
-    blurb: "Looks at how much it is up today. Buys a liquid runner (6–12%, $30M+ volume). Lets winners run to ~8% and skips thin alts.",
+    blurb: "Looks at how much it is up today. Buys a liquid runner (4–9%, $50M+ volume). Trail after +5%, out at −4% or 60 min.",
   },
   dca: {
     label: "Dip buyer",
-    blurb: "Buys a set dollar amount when price is below its recent average. Holds 20 minutes. Sells around +6% or a 5% stop.",
+    blurb: "Buys a set dollar amount when price is stretched below its recent average (z-score). Holds 20 minutes. Sells around +6% or a 3.5% stop.",
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Scans new Pump.fun listings and Dex runners. Buys a 5–16% rip, trails after +6%. New coins get 2 minutes of tape first.",
+    blurb: "Scans new Pump.fun listings and Dex runners. Buys a 5–16% rip, trails after +6%, hard −6.5%. $9 tickets. 5-minute gap.",
   },
   scalp: {
     label: "Pump scalp",

@@ -71,6 +71,15 @@ export function roundTripFee(
   return buy.total + sell.total;
 }
 
+export function minTicketUsd(kind: MarketKind, symbol: string): number {
+  if (kind === "stock") return 8;
+  if (kind === "pump") return 8;
+  const s = symbol.replace(/-USD$/, "").toUpperCase();
+  if (s === "BTC") return 50;
+  if (s === "ETH") return 25;
+  return 15;
+}
+
 export function feeWouldEat(kind: MarketKind, symbol: string, notional: number): boolean {
   if (notional <= 0) return true;
   const cap = kind === "pump" ? 0.08 : 0.025;
