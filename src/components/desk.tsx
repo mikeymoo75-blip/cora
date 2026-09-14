@@ -1148,25 +1148,6 @@ function LogPane({
             </li>
           ))}
         </ul>
-        <h2 className="mb-2 text-sm font-semibold">Saved tests</h2>
-        {(!desk.tests || desk.tests.length === 0) && (
-          <p className="text-xs text-muted">
-            After a run, tap New $1,000 test to save it here and compare what worked.
-          </p>
-        )}
-        <ul className="space-y-2">
-          {(desk.tests || []).map((t) => (
-            <li key={t.id} className="rounded-lg bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
-              <p className="text-sm font-medium">{t.name}</p>
-              <p className={cn("font-mono text-xs", t.netPnl >= 0 ? "text-primary" : "text-down")}>
-                {t.trades} trades · net {money(t.netPnl)} · fees {money(t.feesPaid)}
-              </p>
-              <p className="text-xs text-muted">
-                {compactMoney(t.startingCash)} → {compactMoney(t.endingEquity)}
-              </p>
-            </li>
-          ))}
-        </ul>
         <h2 className="mt-4 mb-2 text-sm font-semibold">Open positions</h2>
         <ul className="space-y-1">
           {Object.values(desk.positions).length === 0 && (
@@ -1206,6 +1187,25 @@ function LogPane({
               </li>
             );
           })}
+        </ul>
+        <h2 className="mt-4 mb-2 text-sm font-semibold">Saved tests</h2>
+        {(!desk.tests || desk.tests.length === 0) && (
+          <p className="text-xs text-muted">
+            After a run, tap New $1,000 test to save it here and compare what worked.
+          </p>
+        )}
+        <ul className="space-y-2">
+          {(desk.tests || []).map((t) => (
+            <li key={t.id} className="rounded-lg bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
+              <p className="text-sm font-medium">{t.name}</p>
+              <p className={cn("font-mono text-xs", signedClass(t.netPnl))}>
+                {t.trades} trades · net {signedMoney(t.netPnl)} · fees {money(t.feesPaid)}
+              </p>
+              <p className="text-xs text-muted">
+                {compactMoney(t.startingCash)} → {compactMoney(t.endingEquity)}
+              </p>
+            </li>
+          ))}
         </ul>
       </div>
       <div>
