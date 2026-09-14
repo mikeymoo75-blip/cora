@@ -91,7 +91,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "5m / 15m Up-Down",
-    blurb: "BTC & ETH 5m/15m rounds. Fair from live spot vs Price-to-Beat plus a 1-minute momentum tilt. Buys the cheap side; if price reverses it buys the other leg instead of dumping. Holds hedged pairs to settle. ~$20 tickets.",
+    blurb: "BTC, ETH, SOL, XRP, DOGE, BNB, HYPE 5m/15m rounds. Fair from live spot vs Price-to-Beat plus a 1-minute momentum tilt. Buys the cheap side; if price reverses it buys the other leg instead of dumping. Holds hedged pairs to settle. ~$20 tickets.",
   },
   scalp: {
     label: "Fade stretch",
@@ -119,7 +119,7 @@ export const SCOPE_COPY: Record<ScanScope, { label: string; blurb: string }> = {
   },
   poly: {
     label: "Scan Polymarket",
-    blurb: "BTC/ETH 5- and 15-minute Up/Down, plus longer events for Fade. Never spends stocks/crypto cash.",
+    blurb: "BTC, ETH, SOL, XRP, DOGE, BNB, HYPE 5- and 15-minute Up/Down, plus longer events for Fade. Never spends stocks/crypto cash.",
   },
   all: {
     label: "Scan stocks + crypto",

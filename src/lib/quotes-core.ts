@@ -1,6 +1,6 @@
 import { CORE_SEEDS, POLY_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
-import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses } from "./updown";
+import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses, UPDOWN_ASSETS } from "./updown";
 
 async function fetchJson(
   url: string,
@@ -264,13 +264,51 @@ async function polyEventBoard(): Promise<Quote[]> {
   return [...byId.values()].sort((a, b) => b.volume - a.volume).slice(0, 24);
 }
 
-async function fetchBinanceTape(
-  symbol: string,
-): Promise<{
+type SpotTape = {
   spot: number;
   rows: { t: number; o: number; c: number }[];
   fine: { t: number; o: number; c: number }[];
-} | null> {
+};
+
+async function fetchHlTape(coin: string): Promise<SpotTape | null> {
+  try {
+    const now = Date.now();
+    const [candles, mids] = await Promise.all([
+      fetch("https://api.hyperliquid.xyz/info", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "candleSnapshot",
+          req: { coin, interval: "1m", startTime: now - 40 * 60_000, endTime: now },
+        }),
+        signal: AbortSignal.timeout(6000),
+      }).then((r) => (r.ok ? r.json() : [])),
+      fetch("https://api.hyperliquid.xyz/info", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "allMids" }),
+        signal: AbortSignal.timeout(4000),
+      }).then((r) => (r.ok ? r.json() : {})),
+    ]);
+    const rows: { t: number; o: number; c: number }[] = [];
+    const list = Array.isArray(candles) ? candles : [];
+    for (const row of list) {
+      if (!row || typeof row !== "object") continue;
+      const rec = row as { t?: number; o?: string; c?: string };
+      const t = Number(rec.t);
+      const o = Number(rec.o);
+      const c = Number(rec.c);
+      if (t > 0 && c > 0) rows.push({ t, o, c });
+    }
+    const spot = Number((mids as Record<string, string>)?.[coin]) || rows[rows.length - 1]?.c || 0;
+    if (!spot || !rows.length) return null;
+    return { spot, rows, fine: rows };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBinanceTape(symbol: string): Promise<SpotTape | null> {
   try {
     const [klines, fineRaw, ticker] = await Promise.all([
       fetchJson(
@@ -343,19 +381,23 @@ function windowCloses(
   return fallback.length ? fallback : [spot || open];
 }
 
+async function poolMap<T>(items: T[], n: number, fn: (item: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += n) {
+    await Promise.all(items.slice(i, i + n).map(fn));
+  }
+}
+
 async function fetchUpDownRounds(): Promise<Quote[]> {
   const windows = currentWindows();
-  const symbols = [...new Set(windows.map((w) => w.binance))];
-  const tapes = new Map<string, { spot: number; rows: { t: number; o: number; c: number }[]; fine: { t: number; o: number; c: number }[] }>();
+  const tapes = new Map<string, SpotTape>();
   await Promise.all(
-    symbols.map(async (sym) => {
-      const tape = await fetchBinanceTape(sym);
-      if (tape) tapes.set(sym, tape);
+    UPDOWN_ASSETS.map(async (a) => {
+      const tape = a.hl ? await fetchHlTape(a.hl) : await fetchBinanceTape(a.binance);
+      if (tape) tapes.set(a.asset, tape);
     }),
   );
   const out: Quote[] = [];
-  await Promise.all(
-    windows.map(async (w) => {
+  await poolMap(windows, 6, async (w) => {
       try {
         const json = await fetchJson(
           `https://gamma-api.polymarket.com/events?slug=${encodeURIComponent(w.slug)}`,
@@ -368,7 +410,7 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const prices = parseJsonArray(m.outcomePrices).map(Number);
         const upPx = Number.isFinite(prices[0]) ? prices[0]! : 0.5;
         const downPx = Number.isFinite(prices[1]) ? prices[1]! : Math.max(0.001, 1 - upPx);
-        const tape = tapes.get(w.binance);
+        const tape = tapes.get(w.asset);
         const open = tape ? openFromTape(tape.rows, w.windowStart, w.horizon) : 0;
         const spot = tape?.spot || 0;
         const closes = tape ? tape.rows.map((r) => r.c) : [];
@@ -423,8 +465,7 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
       } catch {
         /* skip this window */
       }
-    }),
-  );
+  });
   return out;
 }
 

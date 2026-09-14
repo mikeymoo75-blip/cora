@@ -1,7 +1,26 @@
 import type { Position, Quote } from "./types";
 
-export type UpDownAsset = "BTC" | "ETH";
+export type UpDownAsset = "BTC" | "ETH" | "SOL" | "XRP" | "DOGE" | "BNB" | "HYPE";
 export type UpDownHorizon = "5m" | "15m";
+
+export type UpDownFeed = {
+  asset: UpDownAsset;
+  binance: string;
+  hl?: string;
+};
+
+/** Polymarket’s live crypto Up/Down set. HYPE has no Binance pair — use Hyperliquid. */
+export const UPDOWN_ASSETS: UpDownFeed[] = [
+  { asset: "BTC", binance: "BTCUSDT" },
+  { asset: "ETH", binance: "ETHUSDT" },
+  { asset: "SOL", binance: "SOLUSDT" },
+  { asset: "XRP", binance: "XRPUSDT" },
+  { asset: "DOGE", binance: "DOGEUSDT" },
+  { asset: "BNB", binance: "BNBUSDT" },
+  { asset: "HYPE", binance: "", hl: "HYPE" },
+];
+
+export const UPDOWN_ORDER = UPDOWN_ASSETS.map((a) => a.asset);
 
 export type UpDownWindow = {
   asset: UpDownAsset;
@@ -32,10 +51,7 @@ export function currentWindows(at = Date.now()): UpDownWindow[] {
   const sec = Math.floor(at / 1000);
   const w5 = Math.floor(sec / 300) * 300;
   const w15 = Math.floor(sec / 900) * 900;
-  const assets: { asset: UpDownAsset; binance: string }[] = [
-    { asset: "BTC", binance: "BTCUSDT" },
-    { asset: "ETH", binance: "ETHUSDT" },
-  ];
+  const assets = UPDOWN_ASSETS;
   const out: UpDownWindow[] = [];
   for (const a of assets) {
     const tag = a.asset.toLowerCase();

@@ -312,7 +312,7 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The position is up about 6% from cost, so the bot is cashing in.",
     },
     sniper: {
-      buy: "5m/15m Up-Down: live BTC/ETH is mispriced vs Polymarket. Buy the cheap side.",
+      buy: "5m/15m Up-Down: live crypto is mispriced vs Polymarket. Buy the cheap side.",
       sell: "Round settled, unhedged stop, or the window closed.",
     },
     scalp: {
@@ -846,6 +846,8 @@ function rankForBot(bot: Bot, quotes: Quote[]): Quote[] {
         const edge = Math.abs((q.fair ?? 0.5) - (q.leg === "down" ? 1 - q.price : q.price));
         s += 40 + edge * 400;
         if (q.horizon === "5m") s += 8;
+        if (q.asset === "BTC" || q.asset === "ETH") s += 5;
+        else if (q.asset === "SOL") s += 3;
       } else if (c >= 4 && c <= 18) s += 80 - Math.abs(c - 10);
       else if (c < 0 && c > -12 && bot.strategy === "scalp") s += 70 - Math.abs(c + 5);
       else if (c > 18) s += 8;

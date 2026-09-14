@@ -35,6 +35,7 @@ import type {
   StrategyId,
   WalletView,
 } from "@/lib/types";
+import { UPDOWN_ORDER } from "@/lib/updown";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
@@ -444,7 +445,9 @@ function RoundBoard({
       const ah = a.horizon === "5m" ? 0 : 1;
       const bh = b.horizon === "5m" ? 0 : 1;
       if (ah !== bh) return ah - bh;
-      return a.asset.localeCompare(b.asset);
+      const ia = UPDOWN_ORDER.indexOf(a.asset as (typeof UPDOWN_ORDER)[number]);
+      const ib = UPDOWN_ORDER.indexOf(b.asset as (typeof UPDOWN_ORDER)[number]);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
   const roundKeys = rounds.map((r) => r.key).join("|");
   const featured = rounds.find((r) => r.key === pick) || rounds[0];
@@ -520,7 +523,7 @@ function RoundBoard({
       <div className="mb-3">
         <h2 className="font-display text-2xl font-semibold">Live rounds</h2>
         <p className="text-sm text-muted">
-          BTC & ETH racing Price-to-Beat. Cheap side when the book is off — hedge the other, never dump.
+          BTC, ETH, SOL, XRP, DOGE, BNB, HYPE racing Price-to-Beat. Cheap side when the book is off — hedge the other, never dump.
         </p>
       </div>
       <div className="mb-3 flex flex-wrap gap-2">
@@ -942,7 +945,7 @@ function BotsPane({
       <div>
         <h2 className="font-display text-2xl font-semibold">Scan bots</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted">
-          These hunt stocks, crypto, and BTC/ETH 5m & 15m Polymarket rounds. People to copy live on the Copy tab.
+          These hunt stocks, crypto, and BTC–HYPE 5m & 15m Polymarket rounds. People to copy live on the Copy tab.
         </p>
         <Scoreboard scores={desk.scores} />
         <ul className="mt-4 space-y-2">
