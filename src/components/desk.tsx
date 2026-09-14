@@ -827,7 +827,12 @@ function LogPane({
   return (
     <div className="grid gap-6 p-4 md:grid-cols-2 md:px-8">
       <div>
-        <h2 className="font-display text-2xl font-semibold">Reports</h2>
+        <h2 className="font-display text-2xl font-semibold">Scanner</h2>
+        <p className="mb-2 text-sm text-muted">Why it bought, sold, or skipped.</p>
+        <div className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
+          <ScanTape notes={desk.scanTape || []} empty="No scan yet — wait about 15 seconds." />
+        </div>
+        <h2 className="mt-6 font-display text-2xl font-semibold">Reports</h2>
         {(!desk.reports || desk.reports.length === 0) && (
           <p className="mt-1 text-sm text-muted">Tap Save report, then paste it in chat.</p>
         )}
@@ -851,11 +856,6 @@ function LogPane({
             </li>
           ))}
         </ul>
-        <h2 className="mt-6 font-display text-2xl font-semibold">Scanner</h2>
-        <p className="mb-2 text-sm text-muted">Why it bought, sold, or skipped.</p>
-        <div className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
-          <ScanTape notes={desk.scanTape || []} empty="No scan yet — wait about 15 seconds." />
-        </div>
       </div>
       <div>
         <h2 className="font-display text-2xl font-semibold">Trade log</h2>
