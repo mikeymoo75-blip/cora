@@ -9,6 +9,7 @@ import type {
   MarketKind,
   Position,
   Quote,
+  ScanNote,
   StrategyId,
   Wallet,
   WalletId,
@@ -57,7 +58,7 @@ export function ensureWallets(state: DeskState): DeskState {
     if (pump.halted && (pump.cash >= 5 || holdingPump)) {
       wallets = { ...wallets, pump: { ...pump, halted: false, haltReason: "" } };
     }
-    return { ...state, cash, wallets, reports: state.reports || [] };
+    return { ...state, cash, wallets, reports: state.reports || [], scanTape: state.scanTape || [] };
   }
   const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + PUMP_START;
   const coreCash = Math.round(cash * 0.8 * 100) / 100;
@@ -344,41 +345,62 @@ function ticksFalling(spark: number[], n: number): boolean {
 }
 
 /** Pump.fun is not a stock. No dip-buying, tight trail, fast take-profit. */
-export function pumpSignal(
+export function pumpExplain(
   quote: Quote,
   pos: Position | undefined,
   style: "sniper" | "scalp",
-): "buy" | "sell" | "hold" {
+): { action: "buy" | "sell" | "hold"; why: string } {
   const spark = quote.spark;
   const last = quote.price;
 
   if (pos) {
-    if (!last || last <= 0) return "sell";
+    if (!last || last <= 0) return { action: "sell", why: "Price print died — getting out." };
     const heldMs = pos.openedAt ? Date.now() - pos.openedAt : 0;
+    const heldSec = Math.round(heldMs / 1000);
     const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
     const fromEntry = pos.avg > 0 ? ((last - pos.avg) / pos.avg) * 100 : 0;
     const stale = quote.seenAt ? Date.now() - quote.seenAt > 90_000 : false;
     const maxHold = style === "scalp" ? 8 * 60 * 1000 : 12 * 60 * 1000;
     const minHold = 2 * 60 * 1000;
     const catastrophic = fromEntry <= -30;
-    if (!catastrophic && heldMs < minHold) return "hold";
-    if (stale) return "sell";
-    if (heldMs >= maxHold) return "sell";
-    const prev = spark.length >= 2 ? spark[spark.length - 2]! : last;
-    if (heldMs >= 60_000 && prev > 0 && last <= prev * 0.85) return "sell";
-    if (style === "scalp") {
-      if (fromPeak <= -3.5 || fromEntry <= -6 || fromEntry >= 10) return "sell";
-      if (ticksFalling(spark, 2) && fromEntry < 2) return "sell";
-    } else {
-      if (fromPeak <= -4 || fromEntry <= -6 || fromEntry >= 18) return "sell";
-      if (ticksFalling(spark, 3) && fromEntry < 3) return "sell";
+    if (!catastrophic && heldMs < minHold) {
+      return {
+        action: "hold",
+        why: `Min hold 2 min (${heldSec}s in). ${fromEntry >= 0 ? "Up" : "Down"} ${Math.abs(fromEntry).toFixed(1)}% from entry.`,
+      };
     }
-    return "hold";
+    if (stale) return { action: "sell", why: "Price feed went stale for 90s." };
+    if (heldMs >= maxHold) {
+      return { action: "sell", why: `Time stop — held ${Math.round(heldMs / 60000)} min.` };
+    }
+    const prev = spark.length >= 2 ? spark[spark.length - 2]! : last;
+    if (heldMs >= 60_000 && prev > 0 && last <= prev * 0.85) {
+      return { action: "sell", why: "Gapped down more than 15% on one tick." };
+    }
+    if (style === "scalp") {
+      if (fromPeak <= -3.5) return { action: "sell", why: `Faded ${Math.abs(fromPeak).toFixed(1)}% off the peak.` };
+      if (fromEntry <= -6) return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
+      if (fromEntry >= 10) return { action: "sell", why: `Take profit — up ${fromEntry.toFixed(1)}%.` };
+      if (ticksFalling(spark, 2) && fromEntry < 2) return { action: "sell", why: "Two down ticks in a row, no cushion." };
+    } else {
+      if (fromPeak <= -4) return { action: "sell", why: `Faded ${Math.abs(fromPeak).toFixed(1)}% off the peak.` };
+      if (fromEntry <= -6) return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
+      if (fromEntry >= 18) return { action: "sell", why: `Take profit — up ${fromEntry.toFixed(1)}%.` };
+      if (ticksFalling(spark, 3) && fromEntry < 3) return { action: "sell", why: "Three down ticks, no cushion." };
+    }
+    return {
+      action: "hold",
+      why: `Watching. ${fromEntry >= 0 ? "Up" : "Down"} ${Math.abs(fromEntry).toFixed(1)}% from entry, ${fromPeak.toFixed(1)}% off peak.`,
+    };
   }
 
-  if (spark.length < 8 || last <= 0) return "hold";
-  if (!quote.live) return "hold";
-  if (!quote.volume || quote.volume < 2500) return "hold";
+  if (spark.length < 8 || last <= 0) {
+    return { action: "hold", why: `Only ${spark.length} price ticks — needs 2 minutes of tape.` };
+  }
+  if (!quote.live) return { action: "hold", why: "No live Dex price yet." };
+  if (!quote.volume || quote.volume < 2500) {
+    return { action: "hold", why: `Too thin — volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}.` };
+  }
 
   const recent = spark.slice(style === "scalp" ? -4 : -8);
   const recentHigh = Math.max(...recent);
@@ -389,20 +411,44 @@ export function pumpSignal(
   const alreadyDumping = last < recentHigh * 0.9 || ret < -4;
   const parabolic = ret > 18 || quote.changePct > 40;
 
-  if (alreadyDumping || !rising || !nearHigh || parabolic) return "hold";
-  if (style === "scalp" && ret > 3.5 && ret < 14) return "buy";
-  if (style === "sniper" && ret > 5 && ret < 16) return "buy";
-  return "hold";
+  if (alreadyDumping) return { action: "hold", why: `Already dumping (recent move ${ret.toFixed(1)}%).` };
+  if (!rising) return { action: "hold", why: "Last tick was down, not ripping." };
+  if (!nearHigh) return { action: "hold", why: "Too far off the recent high." };
+  if (parabolic) return { action: "hold", why: `Already parabolic (${ret.toFixed(1)}%) — too late.` };
+  if (style === "scalp" && ret > 3.5 && ret < 14) {
+    return { action: "buy", why: `Short pop, up ${ret.toFixed(1)}% and still near the high.` };
+  }
+  if (style === "sniper" && ret > 5 && ret < 16) {
+    return { action: "buy", why: `Up ${ret.toFixed(1)}% on recent tape, still near the high, Dex-priced.` };
+  }
+  return {
+    action: "hold",
+    why: `Move is ${ret.toFixed(1)}% — ${style} wants ${style === "scalp" ? "3.5–14" : "5–16"}%.`,
+  };
+}
+
+export function pumpSignal(
+  quote: Quote,
+  pos: Position | undefined,
+  style: "sniper" | "scalp",
+): "buy" | "sell" | "hold" {
+  return pumpExplain(quote, pos, style).action;
+}
+
+export function explainSignal(
+  bot: Bot,
+  quote: Quote,
+  pos?: Position,
+): { action: "buy" | "sell" | "hold"; why: string } {
+  if (quote.kind === "pump") {
+    return pumpExplain(quote, pos, bot.strategy === "scalp" ? "scalp" : "sniper");
+  }
+  const use = bot.strategy === "sniper" || bot.strategy === "scalp" ? "momentum" : bot.strategy;
+  return technicalExplain({ ...bot, strategy: use }, quote, pos);
 }
 
 export function pickSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
-  if (quote.kind === "pump") {
-    return pumpSignal(quote, pos, bot.strategy === "scalp" ? "scalp" : "sniper");
-  }
-  if (bot.strategy === "sniper" || bot.strategy === "scalp") {
-    return technicalSignal({ ...bot, strategy: "momentum" }, quote, pos);
-  }
-  return technicalSignal(bot, quote, pos);
+  return explainSignal(bot, quote, pos).action;
 }
 
 export function whyTrade(bot: Bot, quote: Quote, side: "buy" | "sell"): string {
@@ -473,6 +519,32 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
   }
 }
 
+export function technicalExplain(
+  bot: Bot,
+  quote: Quote,
+  pos?: Position,
+): { action: "buy" | "sell" | "hold"; why: string } {
+  const action = technicalSignal(bot, quote, pos);
+  if (action === "buy") return { action, why: whySignal(bot.strategy, "buy") };
+  if (action === "sell") return { action, why: whySignal(bot.strategy, "sell") };
+  if (bot.strategy === "momentum" && !pos) {
+    if (quote.spark.length < 6) return { action, why: "Not enough ticks yet." };
+    if (!quote.live) return { action, why: "Not a live price." };
+    if (quote.kind === "crypto" && quote.volume < 8_000_000) {
+      return { action, why: `Not liquid enough ($${(quote.volume / 1_000_000).toFixed(1)}M). Wants $8M+.` };
+    }
+    if (quote.changePct < 5) {
+      return { action, why: `Only ${quote.changePct.toFixed(1)}% on the day — wants 5–18%.` };
+    }
+    if (quote.changePct > 18) {
+      return { action, why: `Already up ${quote.changePct.toFixed(1)}% — too extended.` };
+    }
+    return { action, why: "Up on the day but not ticking higher on the short tape." };
+  }
+  if (pos) return { action, why: "Holding — stop and target not hit yet." };
+  return { action, why: "No buy signal this pass." };
+}
+
 export function botScores(state: DeskState): BotScore[] {
   return state.bots.map((bot) => {
     const fills = state.fills.filter((f) => f.botId === bot.id || f.botName === bot.name);
@@ -527,6 +599,23 @@ function botsMayBuy(state: DeskState, symbol: string, at = Date.now()): boolean 
   return (state.manualLocks?.[symbol] ?? 0) <= at;
 }
 
+function scanNote(
+  bot: Bot,
+  quote: Quote,
+  decision: ScanNote["decision"],
+  reason: string,
+): ScanNote {
+  return {
+    ts: Date.now(),
+    botId: bot.id,
+    botName: bot.name,
+    symbol: quote.id,
+    ticker: quote.symbol,
+    decision,
+    reason,
+  };
+}
+
 export function tickBots(state: DeskState): DeskState {
   const now = Date.now();
   const keptLocks: Record<string, number> = {};
@@ -574,6 +663,7 @@ export function tickBots(state: DeskState): DeskState {
   const bots = next.bots.map((b) => ({ ...b }));
   const copyEvents = next.copyEvents.map((e) => ({ ...e }));
   const rth = stockMarketOpen();
+  const tape: ScanNote[] = [];
 
   for (const bot of bots) {
     if (!bot.enabled) continue;
@@ -684,6 +774,7 @@ export function tickBots(state: DeskState): DeskState {
     let acted = false;
     const feeSkips: string[] = [];
     const maxNames = Math.max(1, bot.maxNames || 4);
+    const pass: ScanNote[] = [];
 
     // Mark peaks + sell names this bot still holds.
     for (const sym of ownedSymbols(next, bot.id)) {
@@ -698,10 +789,14 @@ export function tickBots(state: DeskState): DeskState {
           [sym]: { ...pos, peak: Math.max(pos.peak, quote.price) },
         },
       };
-      const sig = pickSignal(bot, quote, next.positions[sym]);
-      if (sig !== "sell") continue;
+      const explained = explainSignal(bot, quote, next.positions[sym]);
+      if (explained.action === "hold") {
+        pass.push(scanNote(bot, quote, "skip", explained.why));
+        continue;
+      }
+      if (explained.action !== "sell") continue;
       const notional = pos.qty * quote.price;
-      const reason = `${quote.symbol}: ${whyTrade(bot, quote, "sell")}`;
+      const reason = `${quote.symbol}: ${explained.why}`;
       next = applyFill(
         next,
         "sell",
@@ -717,6 +812,7 @@ export function tickBots(state: DeskState): DeskState {
       bot.lastSignal = "sell";
       bot.lastReason = reason;
       bot.lastSold = { ...(bot.lastSold || {}), [sym]: Date.now() };
+      pass.push(scanNote(bot, quote, "sell", explained.why));
       acted = true;
     }
 
@@ -739,29 +835,58 @@ export function tickBots(state: DeskState): DeskState {
 
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
-    for (const quote of universe) {
-      if (held >= maxNames) break;
+    const ranked = universe.slice().sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+    let pumpCool = false;
+    if (bot.scope === "pump" || ranked.some((q) => q.kind === "pump")) {
+      const lastPump = next.fills.find((f) => f.botId === bot.id && f.kind === "pump");
+      pumpCool = !!(lastPump && Date.now() - lastPump.ts < 4 * 60 * 1000);
+    }
+    for (const quote of ranked.slice(0, 40)) {
       if (next.positions[quote.id]) continue;
-      if (!botsMayBuy(next, quote.id)) continue;
-      if (quote.kind === "stock" && !rth) continue;
-      const wid = walletIdFor(quote.kind);
-      if (next.wallets[wid].halted) continue;
-      const coolUntil = bot.lastSold?.[quote.id] ?? 0;
-      if (Date.now() < coolUntil + 30 * 60 * 1000) continue;
-      if (quote.kind === "pump") {
-        const lastPump = next.fills.find((f) => f.botId === bot.id && f.kind === "pump");
-        if (lastPump && Date.now() - lastPump.ts < 4 * 60 * 1000) continue;
-      }
-      const sig = pickSignal(bot, quote, undefined);
-      if (sig !== "buy") continue;
-      const eq = walletEquity(next, wid);
-      const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
-      if (size < 5) continue;
-      if (feeWouldEat(quote.kind, quote.symbol, size)) {
-        feeSkips.push(quote.symbol);
+      if (held >= maxNames) {
+        pass.push(scanNote(bot, quote, "skip", `Already holding ${held}/${maxNames} names.`));
         continue;
       }
-      const reason = `${quote.symbol}: ${whyTrade(bot, quote, "buy")}`;
+      if (!botsMayBuy(next, quote.id)) {
+        pass.push(scanNote(bot, quote, "skip", "You sold this. Bots skip it for 30 minutes."));
+        continue;
+      }
+      if (quote.kind === "stock" && !rth) {
+        pass.push(scanNote(bot, quote, "skip", "US stock market is closed."));
+        continue;
+      }
+      const wid = walletIdFor(quote.kind);
+      if (next.wallets[wid].halted) {
+        pass.push(scanNote(bot, quote, "skip", next.wallets[wid].haltReason || "Wallet paused."));
+        continue;
+      }
+      const coolUntil = bot.lastSold?.[quote.id] ?? 0;
+      if (Date.now() < coolUntil + 30 * 60 * 1000) {
+        const left = Math.max(1, Math.round((coolUntil + 30 * 60 * 1000 - Date.now()) / 60000));
+        pass.push(scanNote(bot, quote, "skip", `Sold this recently — cooling ${left} min.`));
+        continue;
+      }
+      if (quote.kind === "pump" && pumpCool) {
+        pass.push(scanNote(bot, quote, "skip", "4-minute gap after the last Pump.fun trade."));
+        continue;
+      }
+      const explained = explainSignal(bot, quote, undefined);
+      if (explained.action !== "buy") {
+        pass.push(scanNote(bot, quote, "skip", explained.why));
+        continue;
+      }
+      const eq = walletEquity(next, wid);
+      const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
+      if (size < 5) {
+        pass.push(scanNote(bot, quote, "skip", "Not enough cash in this wallet for a ticket."));
+        continue;
+      }
+      if (feeWouldEat(quote.kind, quote.symbol, size)) {
+        feeSkips.push(quote.symbol);
+        pass.push(scanNote(bot, quote, "skip", `Fees would eat a $${size.toFixed(0)} ticket.`));
+        continue;
+      }
+      const reason = `${quote.symbol}: ${explained.why}`;
       next = applyFill(
         next,
         "buy",
@@ -778,9 +903,13 @@ export function tickBots(state: DeskState): DeskState {
       bot.lastReason = reason;
       bot.symbol = quote.id;
       bot.kind = quote.kind;
+      pass.push(scanNote(bot, quote, "buy", explained.why));
       held += 1;
       acted = true;
     }
+
+    bot.lastScan = pass.slice(0, 40);
+    tape.push(...pass);
 
     if (!acted) {
       const n = universe.length;
@@ -808,7 +937,13 @@ export function tickBots(state: DeskState): DeskState {
   const v = markToMarket(next);
   const equitySeries = [...next.equity, { t: Date.now(), v }].slice(-480);
 
-  return { ...next, bots, copyEvents, equity: equitySeries };
+  return {
+    ...next,
+    bots,
+    copyEvents,
+    equity: equitySeries,
+    scanTape: [...tape, ...(next.scanTape || [])].slice(0, 150),
+  };
 }
 
 /** Fast path: re-mark every open bag and sell if the rule says so. Used every 10s. */

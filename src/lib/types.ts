@@ -65,6 +65,17 @@ export type Bot = {
   lastTickAt: number;
   lastReason: string;
   lastSold?: Record<string, number>;
+  lastScan?: ScanNote[];
+};
+
+export type ScanNote = {
+  ts: number;
+  botId: string;
+  botName: string;
+  symbol: string;
+  ticker: string;
+  decision: "buy" | "sell" | "skip";
+  reason: string;
 };
 
 export type CopyEvent = {
@@ -173,6 +184,7 @@ export type DeskState = {
   manualLocks: Record<string, number>;
   wallets: Record<WalletId, Wallet>;
   reports: DeskReport[];
+  scanTape: ScanNote[];
 };
 
 export type DeskSnapshot = DeskState & {

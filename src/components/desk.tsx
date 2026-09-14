@@ -34,6 +34,7 @@ import type {
   MarketKind,
   Position,
   Quote,
+  ScanNote,
   ScanScope,
   StrategyId,
   WalletView,
@@ -869,6 +870,15 @@ function BotsPane({
                     {score.unrealizedPnl ? ` · open ${money(score.unrealizedPnl)}` : ""}
                   </p>
                 )}
+                {b.enabled && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-muted">
+                      Last scan
+                      {b.lastScan?.length ? ` · ${b.lastScan.length} names` : ""}
+                    </summary>
+                    <ScanTape notes={b.lastScan || []} empty="Waiting for the next 15s pass." />
+                  </details>
+                )}
               </li>
             );
           })}
@@ -1148,6 +1158,11 @@ function LogPane({
             </li>
           ))}
         </ul>
+        <h2 className="mt-4 mb-2 text-sm font-semibold">Scanner</h2>
+        <p className="mb-2 text-xs text-muted">
+          Why the bots bought, sold, or skipped a name on the last passes.
+        </p>
+        <ScanTape notes={desk.scanTape || []} empty="No scan yet — wait about 15 seconds." />
         <h2 className="mt-4 mb-2 text-sm font-semibold">Open positions</h2>
         <ul className="space-y-1">
           {Object.values(desk.positions).length === 0 && (
@@ -1261,6 +1276,32 @@ function LogPane({
         </ul>
       </div>
     </div>
+  );
+}
+
+function ScanTape({ notes, empty }: { notes: ScanNote[]; empty?: string }) {
+  if (!notes.length) {
+    return <p className="text-xs text-muted">{empty || "Nothing scanned yet."}</p>;
+  }
+  return (
+    <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto font-mono text-[11px] leading-snug">
+      {notes.map((n, i) => (
+        <li key={`${n.botId}-${n.symbol}-${n.ts}-${i}`} className="flex gap-2">
+          <span
+            className={cn(
+              "w-9 shrink-0",
+              n.decision === "buy" && "text-primary",
+              n.decision === "sell" && "text-down",
+              n.decision === "skip" && "text-muted",
+            )}
+          >
+            {n.decision === "buy" ? "BUY" : n.decision === "sell" ? "SELL" : "skip"}
+          </span>
+          <span className="w-16 shrink-0 text-fg">{n.ticker}</span>
+          <span className="min-w-0 text-muted">{n.reason}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

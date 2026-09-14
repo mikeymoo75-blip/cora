@@ -165,6 +165,7 @@ function blank(): DeskState {
     manualLocks: {},
     wallets: blankWallets(),
     reports: [],
+    scanTape: [],
   };
 }
 
@@ -289,6 +290,8 @@ function save(state: DeskState) {
     fills: state.fills.slice(0, 400),
     equity: state.equity.slice(-480),
     copyEvents: state.copyEvents.slice(0, 80),
+    scanTape: (state.scanTape || []).slice(0, 150),
+    bots: state.bots.map((b) => ({ ...b, lastScan: (b.lastScan || []).slice(0, 30) })),
   };
   writeFileSync(tmp, JSON.stringify(slim));
   renameSync(tmp, file);
