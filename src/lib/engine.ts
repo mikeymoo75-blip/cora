@@ -449,12 +449,21 @@ export function pumpExplain(
     };
   }
 
-  if (spark.length < 8 || last <= 0) {
+  if (last <= 0) return { action: "hold", why: "No price." };
+  const liquidEnough = quote.live && (quote.volume || 0) >= 8000 && quote.changePct > 5 && quote.changePct < 16;
+  if (spark.length < 8 && !liquidEnough) {
     return { action: "hold", why: `Only ${spark.length} price ticks — needs 2 minutes of tape.` };
   }
   if (!quote.live) return { action: "hold", why: "No live Dex price yet." };
   if (!quote.volume || quote.volume < 2500) {
     return { action: "hold", why: `Too thin — volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}.` };
+  }
+
+  if (spark.length < 8) {
+    return {
+      action: "buy",
+      why: `Dex-priced and liquid, up ${quote.changePct.toFixed(1)}% — taking it while tape is still filling.`,
+    };
   }
 
   const recent = spark.slice(style === "scalp" ? -4 : -8);
@@ -668,10 +677,61 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
     const q = state.quotes[bot.symbol];
     return q ? [q] : [];
   }
-  if (bot.scope === "all") return all.filter((q) => q.kind === "stock" || q.live);
+  if (bot.scope === "pump") {
+    return all
+      .filter((q) => q.kind === "pump" && q.live)
+      .sort((a, b) => (b.volume || 0) - (a.volume || 0))
+      .slice(0, 80);
+  }
   if (bot.scope === "crypto") return all.filter((q) => q.kind === "crypto" && q.live);
-  if (bot.scope === "pump") return all.filter((q) => q.kind === "pump");
+  if (bot.scope === "all") return all.filter((q) => q.kind === "stock" || q.live);
   return all.filter((q) => q.kind === bot.scope);
+}
+
+function rankForBot(bot: Bot, quotes: Quote[]): Quote[] {
+  const dip = bot.strategy === "meanrev" || bot.strategy === "dca";
+  const score = (q: Quote): number => {
+    const c = q.changePct;
+    let s = q.live ? 10 : 0;
+    if (dip) return s - c + Math.min(q.volume || 0, 1_000_000) / 1_000_000;
+    if (q.kind === "pump") {
+      if (c >= 5 && c <= 16) s += 80 - Math.abs(c - 9);
+      else if (c > 16 && c < 25) s += 8;
+      else if (c < 0) s -= 30;
+      s += Math.min(q.volume || 0, 80_000) / 8_000;
+    } else {
+      if (c >= 5 && c <= 18) s += 80 - Math.abs(c - 10);
+      else if (c > 0) s += Math.min(c, 20);
+      s += Math.min(q.volume || 0, 40_000_000) / 4_000_000;
+    }
+    return s;
+  };
+  return quotes.slice().sort((a, b) => score(b) - score(a));
+}
+
+function skipSummary(pass: ScanNote[]): string {
+  const skips = pass.filter((n) => n.decision === "skip");
+  if (!skips.length) return "";
+  const buckets = new Map<string, number>();
+  for (const n of skips) {
+    const r = n.reason.toLowerCase();
+    let key = "other";
+    if (r.includes("parabolic")) key = "parabolic";
+    else if (r.includes("dump")) key = "dumping";
+    else if (r.includes("ticks") || r.includes("tape")) key = "short tape";
+    else if (r.includes("thin") || r.includes("volume")) key = "too thin";
+    else if (r.includes("liquid")) key = "not liquid";
+    else if (r.includes("ripping") || r.includes("last tick")) key = "not ripping";
+    else if (r.includes("high")) key = "off the high";
+    else if (r.includes("move is") || (r.includes("only") && r.includes("day"))) key = "move too small";
+    else if (r.includes("day")) key = "not up 5–18%";
+    buckets.set(key, (buckets.get(key) || 0) + 1);
+  }
+  const bits = [...buckets.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([k, n]) => `${n} ${k}`);
+  return ` Looked at ${skips.length}: ${bits.join(", ")}.`;
 }
 
 function botsMayBuy(state: DeskState, symbol: string, at = Date.now()): boolean {
@@ -948,7 +1008,7 @@ export function tickBots(state: DeskState): DeskState {
 
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
-    const ranked = universe.slice().sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+    const ranked = rankForBot(bot, universe);
     let pumpCool = false;
     if (bot.scope === "pump" || ranked.some((q) => q.kind === "pump")) {
       const lastPump = next.fills.find((f) => f.botId === bot.id && f.kind === "pump");
@@ -1062,7 +1122,7 @@ export function tickBots(state: DeskState): DeskState {
       const heldNow = ownedSymbols(next, bot.id);
       const skipNote = feeSkips.length
         ? ` Skipped ${feeSkips.join(", ")}: network fees too big for a $${bot.sizeUsd} ticket.`
-        : "";
+        : skipSummary(pass);
       bot.lastSignal = "scanning";
       bot.lastReason =
         bot.scope === "one"
