@@ -213,8 +213,8 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The dip either bounced enough to cover fees, hit a 5% stop, or sat long enough to give up.",
     },
     momentum: {
-      buy: "Price is up 5–18% on the day, still ticking higher, and liquid enough that fees will not eat the ticket.",
-      sell: "Hard −10% stop, trailing stop after +4%, or the ROI table (10% now, 5% after 40 min, flat after 3 hours).",
+      buy: "Runner: up 4–16% on the day, still ticking higher. Buys strength, not dips.",
+      sell: "Get out before the drop: trail after +2.5%, ROI 6%/3%/flat at 90 min, or three down ticks while green.",
     },
     dca: {
       buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
@@ -373,6 +373,11 @@ const CRYPTO_ROI: RoiStep[] = [
   { afterMin: 0, pct: 10 },
   { afterMin: 40, pct: 5 },
   { afterMin: 180, pct: 0 },
+];
+const RUNNER_ROI: RoiStep[] = [
+  { afterMin: 0, pct: 6 },
+  { afterMin: 15, pct: 3 },
+  { afterMin: 90, pct: 0 },
 ];
 
 function roiStep(heldMs: number, table: RoiStep[]): RoiStep {
@@ -541,7 +546,7 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
     spark.length >= 9 ? ((last - spark[spark.length - 9]!) / spark[spark.length - 9]!) * 100 : 0;
   const heldMs = pos?.openedAt ? Date.now() - pos.openedAt : 0;
   const fromEntry = pos ? ((last - pos.avg) / pos.avg) * 100 : 0;
-  const minHold = bot.strategy === "meanrev" || bot.strategy === "dca" || bot.strategy === "momentum" ? 20 * 60 * 1000 : 10 * 60 * 1000;
+  const minHold = bot.strategy === "meanrev" || bot.strategy === "dca" ? 20 * 60 * 1000 : 10 * 60 * 1000;
 
   switch (bot.strategy) {
     case "sma":
@@ -561,20 +566,23 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
     case "momentum":
       if (spark.length < 6) return "hold";
       {
-        const liquid = quote.kind !== "crypto" || quote.volume >= 8_000_000;
-        const popping = quote.live && quote.changePct >= 5 && quote.changePct <= 18 && ret8 > 0.15 && liquid;
-        if (!pos && popping) return "buy";
+        const liquid = quote.kind !== "crypto" || quote.volume >= 5_000_000;
+        const falling = ticksFalling(spark, 2);
+        const runner =
+          quote.live && quote.changePct >= 4 && quote.changePct <= 16 && ret8 > 0 && liquid && !falling;
+        if (!pos && runner) return "buy";
       }
       if (!pos) return "hold";
-      if (fromEntry <= -10) return "sell";
-      if (heldMs < minHold) return "hold";
+      if (fromEntry <= -6) return "sell";
+      if (heldMs < 3 * 60 * 1000) return "hold";
       {
-        const hit = roiHit(heldMs, fromEntry, CRYPTO_ROI);
+        const hit = roiHit(heldMs, fromEntry, RUNNER_ROI);
         if (hit) return "sell";
         const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
-        if (fromEntry >= 4 && fromPeak <= -3) return "sell";
+        if (fromEntry >= 2.5 && fromPeak <= -2) return "sell";
+        if (ticksFalling(spark, 3) && fromEntry > 0) return "sell";
       }
-      if (heldMs > 3 * 60 * 60 * 1000 && fromEntry > 1) return "sell";
+      if (heldMs > 90 * 60 * 1000) return "sell";
       return "hold";
     case "dca":
       if (last < slow * 0.985 && !pos) return "buy";
@@ -594,21 +602,36 @@ export function technicalExplain(
   pos?: Position,
 ): { action: "buy" | "sell" | "hold"; why: string } {
   const action = technicalSignal(bot, quote, pos);
+  if (action === "buy" && bot.strategy === "momentum") {
+    return {
+      action,
+      why: `Runner: up ${quote.changePct.toFixed(1)}% on the day and still ticking higher.`,
+    };
+  }
+  if (action === "sell" && bot.strategy === "momentum" && pos) {
+    const fromEntry = pos.avg > 0 ? ((quote.price - pos.avg) / pos.avg) * 100 : 0;
+    const fromPeak = pos.peak > 0 ? ((quote.price - pos.peak) / pos.peak) * 100 : 0;
+    if (fromEntry <= -6) return { action, why: `Runner stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
+    if (fromEntry >= 2.5 && fromPeak <= -2) {
+      return { action, why: `Runner fading — peaked, then dropped ${Math.abs(fromPeak).toFixed(1)}%. Out before the dump.` };
+    }
+    return { action, why: whySignal("momentum", "sell") };
+  }
   if (action === "buy") return { action, why: whySignal(bot.strategy, "buy") };
   if (action === "sell") return { action, why: whySignal(bot.strategy, "sell") };
   if (bot.strategy === "momentum" && !pos) {
     if (quote.spark.length < 6) return { action, why: "Not enough ticks yet." };
     if (!quote.live) return { action, why: "Not a live price." };
-    if (quote.kind === "crypto" && quote.volume < 8_000_000) {
-      return { action, why: `Not liquid enough ($${(quote.volume / 1_000_000).toFixed(1)}M). Wants $8M+.` };
+    if (quote.kind === "crypto" && quote.volume < 5_000_000) {
+      return { action, why: `Not liquid enough ($${(quote.volume / 1_000_000).toFixed(1)}M). Wants $5M+.` };
     }
-    if (quote.changePct < 5) {
-      return { action, why: `Only ${quote.changePct.toFixed(1)}% on the day — wants 5–18%.` };
+    if (quote.changePct < 4) {
+      return { action, why: `Only ${quote.changePct.toFixed(1)}% on the day — not a runner yet (wants 4–16%).` };
     }
-    if (quote.changePct > 18) {
-      return { action, why: `Already up ${quote.changePct.toFixed(1)}% — too extended.` };
+    if (quote.changePct > 16) {
+      return { action, why: `Already up ${quote.changePct.toFixed(1)}% today — too late, the drop often starts here.` };
     }
-    return { action, why: "Up on the day but not ticking higher on the short tape." };
+    return { action, why: "Up on the day but the last ticks are not still running." };
   }
   if (pos) return { action, why: "Holding — stop and target not hit yet." };
   return { action, why: "No buy signal this pass." };
@@ -700,7 +723,7 @@ function rankForBot(bot: Bot, quotes: Quote[]): Quote[] {
       else if (c < 0) s -= 30;
       s += Math.min(q.volume || 0, 80_000) / 8_000;
     } else {
-      if (c >= 5 && c <= 18) s += 80 - Math.abs(c - 10);
+      if (c >= 4 && c <= 16) s += 80 - Math.abs(c - 9);
       else if (c > 0) s += Math.min(c, 20);
       s += Math.min(q.volume || 0, 40_000_000) / 4_000_000;
     }

@@ -84,8 +84,8 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
     blurb: "Buys a real dip, holds at least 20 minutes, and skips coins where gas would eat the trade. Does not scalp noise.",
   },
   momentum: {
-    label: "Ride the move",
-    blurb: "Buys liquid names up 5–18% on the day. Trailing stop after +4%. ROI: 10% now, 5% after 40 min, time stop at 3 hours.",
+    label: "Runners",
+    blurb: "Looks at how much it is up today. Buys a liquid runner (4–16%) still ticking higher. Trails out before the drop — does not wait 20 minutes.",
   },
   dca: {
     label: "Dip buyer",
@@ -93,7 +93,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Pump.fun only. Dex price. One name. 2-minute min hold. Trailing stop only after +6% (Freqtrade-style). ROI table instead of dumping on the first dip.",
+    blurb: "Buys a Pump runner (up 5–16% on the last few minutes). Trails after +6%. Sells before the dump — not a dip buyer.",
   },
   scalp: {
     label: "Pump scalp",
