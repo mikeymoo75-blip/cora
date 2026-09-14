@@ -726,7 +726,7 @@ export function tickBots(state: DeskState): DeskState {
           return `${q.symbol} ${sign}${fromEntry.toFixed(1)}%`;
         });
         bot.lastSignal = "watching";
-        bot.lastReason = `Watching ${bits.join(", ")} every 5s. Sells on dump, fade off the high, ${bot.strategy === "scalp" ? "8" : "12"} min, or a dead price feed.`;
+        bot.lastReason = `Watching ${bits.join(", ")} every 10s. Sells on dump, fade off the high, ${bot.strategy === "scalp" ? "8" : "12"} min, or a dead price feed.`;
         acted = true;
       }
     }
@@ -801,43 +801,69 @@ export function tickBots(state: DeskState): DeskState {
   return { ...next, bots, copyEvents, equity: equitySeries };
 }
 
-/** Fast path: re-mark held Pump.fun bags and sell if they dumped. Used every 5s. */
-export function tickPumpExits(state: DeskState): DeskState {
+/** Fast path: re-mark every open bag and sell if the rule says so. Used every 10s. */
+export function tickHeldExits(state: DeskState): DeskState {
   let next = ensureWallets(state);
   const bots = next.bots.map((b) => ({ ...b }));
+  const rth = stockMarketOpen();
   let sold = false;
-  for (const bot of bots) {
-    if (!bot.enabled) continue;
-    for (const sym of ownedSymbols(next, bot.id)) {
-      const pos = next.positions[sym];
-      const quote = next.quotes[sym];
-      if (!pos || pos.kind !== "pump" || !quote) continue;
-      next = {
-        ...next,
-        positions: {
-          ...next.positions,
-          [sym]: { ...pos, peak: Math.max(pos.peak, quote.price) },
-        },
-      };
-      if (pickSignal(bot, quote, next.positions[sym]) !== "sell") continue;
-      const reason = `${quote.symbol}: ${whyTrade(bot, quote, "sell")}`;
-      next = applyFill(
-        next,
-        "sell",
-        quote.id,
-        "pump",
-        pos.qty * quote.price,
-        "bot",
-        bot.name,
-        reason,
-        undefined,
-        bot.id,
-      );
+
+  const ownerOf = (sym: string): Bot | undefined => {
+    for (const bot of bots) {
+      if (bot.enabled && ownedSymbols(next, bot.id).includes(sym)) return bot;
+    }
+    const fill = next.fills.find((f) => f.symbol === sym && f.botId);
+    return fill ? bots.find((b) => b.id === fill.botId) : undefined;
+  };
+
+  for (const pos of Object.values(next.positions)) {
+    const quote = next.quotes[pos.symbol];
+    if (!quote) continue;
+    if (pos.kind === "stock" && !rth) continue;
+    next = {
+      ...next,
+      positions: {
+        ...next.positions,
+        [pos.symbol]: { ...pos, peak: Math.max(pos.peak, quote.price) },
+      },
+    };
+    const marked = next.positions[pos.symbol]!;
+    const bot = ownerOf(pos.symbol);
+    const dummy: Bot = {
+      id: "exit-watch",
+      name: "Hold watch",
+      enabled: true,
+      symbol: pos.symbol,
+      kind: pos.kind,
+      strategy: pos.kind === "pump" ? "sniper" : pos.kind === "crypto" ? "momentum" : "sma",
+      sizeUsd: 0,
+      scope: pos.kind === "pump" ? "pump" : pos.kind === "crypto" ? "crypto" : "stock",
+      maxNames: 1,
+      lastSignal: "watching",
+      lastTickAt: Date.now(),
+      lastReason: "",
+    };
+    const actor = bot || dummy;
+    if (pickSignal(actor, quote, marked) !== "sell") continue;
+    const reason = `${quote.symbol}: ${whyTrade(actor, quote, "sell")}`;
+    next = applyFill(
+      next,
+      "sell",
+      quote.id,
+      pos.kind,
+      marked.qty * quote.price,
+      bot ? (bot.strategy === "copy" ? "copy" : "bot") : "bot",
+      actor.name,
+      reason,
+      bot?.name,
+      bot?.id,
+    );
+    if (bot) {
       bot.lastSignal = "sell";
       bot.lastReason = reason;
-      bot.lastSold = { ...(bot.lastSold || {}), [sym]: Date.now() };
-      sold = true;
+      bot.lastSold = { ...(bot.lastSold || {}), [pos.symbol]: Date.now() };
     }
+    sold = true;
   }
   if (!sold) return { ...next, bots };
   const v = markToMarket(next);

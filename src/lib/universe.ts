@@ -93,7 +93,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Pump.fun only. Needs 2 minutes of tape, skips parabolic rips. Checks the bag every 5s. Sells on dump, fade, 12 minutes, or a dead price. Never averages down.",
+    blurb: "Pump.fun only. Needs 2 minutes of tape, skips parabolic rips. Checks every open bag every 10s. Sells on dump, fade, 12 minutes, or a dead price. Never averages down.",
   },
   scalp: {
     label: "Pump scalp",

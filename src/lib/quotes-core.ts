@@ -95,6 +95,45 @@ export async function yahooOne(symbol: string): Promise<Quote | null> {
   }
 }
 
+async function binanceOne(sym: string): Promise<Quote | null> {
+  try {
+    const json = (await fetchJson(
+      `https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${encodeURIComponent(sym)}USDT`,
+      6000,
+    )) as { lastPrice?: string; priceChangePercent?: string; quoteVolume?: string };
+    const price = Number(json.lastPrice);
+    if (!price || !Number.isFinite(price)) return null;
+    return {
+      id: sym,
+      symbol: sym,
+      name: sym,
+      kind: "crypto",
+      price,
+      changePct: Number(json.priceChangePercent) || 0,
+      volume: Number(json.quoteVolume) || 0,
+      spark: [price],
+      live: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Live prices for whatever we currently hold, so exits are not stuck on a stale print. */
+export async function refreshHeldAll(
+  held: { id: string; kind: Quote["kind"] }[],
+): Promise<Quote[]> {
+  const pumpIds = held.filter((h) => h.kind === "pump").map((h) => h.id);
+  const crypto = held.filter((h) => h.kind === "crypto");
+  const stocks = held.filter((h) => h.kind === "stock");
+  const [pump, coins, shares] = await Promise.all([
+    refreshHeldPumps(pumpIds),
+    Promise.all(crypto.map((h) => binanceOne(h.id))),
+    Promise.all(stocks.map((h) => yahooOne(h.id))),
+  ]);
+  return [...pump, ...coins.filter((q): q is Quote => !!q), ...shares.filter((q): q is Quote => !!q)];
+}
+
 type PumpCoin = {
   mint?: string;
   name?: string;

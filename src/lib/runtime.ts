@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickPumpExits, todayStamp, walletEquity, walletViews } from "./engine";
-import { fetchMarketSnapshot, refreshHeldPumps, yahooOne } from "./quotes-core";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
+import { fetchMarketSnapshot, refreshHeldAll, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
 
@@ -494,10 +494,10 @@ export async function tickOnce(): Promise<DeskSnapshot> {
   let s = getState();
   try {
     const snap = await fetchMarketSnapshot();
-    const heldIds = Object.keys(s.positions);
-    const held = new Set(heldIds);
-    const heldPump = await refreshHeldPumps(heldIds).catch(() => []);
-    const incoming = [...snap.quotes, ...heldPump];
+    const heldList = Object.values(s.positions).map((p) => ({ id: p.symbol, kind: p.kind }));
+    const held = new Set(heldList.map((h) => h.id));
+    const heldLive = await refreshHeldAll(heldList).catch(() => []);
+    const incoming = [...snap.quotes, ...heldLive];
     s = {
       ...s,
       quotes: pruneStaleQuotes(
@@ -546,18 +546,18 @@ export async function tickOnce(): Promise<DeskSnapshot> {
   return snapshot();
 }
 
-export async function tickHeldPumpExits(): Promise<void> {
+export async function tickHeldExitsLoop(): Promise<void> {
   const s = getState();
-  const held = Object.keys(s.positions).filter((id) => s.positions[id]?.kind === "pump");
+  const held = Object.values(s.positions).map((p) => ({ id: p.symbol, kind: p.kind }));
   if (!held.length) return;
   try {
-    const fresh = await refreshHeldPumps(held);
+    const fresh = await refreshHeldAll(held);
     let next = { ...s, quotes: mergeQuotes(s.quotes, fresh) };
-    next = tickPumpExits(next);
+    next = tickHeldExits(next);
     next = { ...next, loopAt: Date.now(), loopOk: true };
     setState(next);
   } catch (err) {
-    console.error("[cora] pump exit tick failed", err);
+    console.error("[cora] hold-exit tick failed", err);
   }
 }
 
@@ -571,8 +571,8 @@ export function startDeskLoop() {
     void tickOnce();
   }, TICK_MS);
   g().__coraPumpLoop = setInterval(() => {
-    void tickHeldPumpExits();
-  }, 5_000);
+    void tickHeldExitsLoop();
+  }, 10_000);
 }
 
 export function placeOrder(side: "buy" | "sell", symbol: string, notional: number, close = false) {
