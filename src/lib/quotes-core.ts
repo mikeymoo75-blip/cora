@@ -322,7 +322,7 @@ async function binanceCryptoBoard(): Promise<Quote[]> {
     });
   }
   scored.sort((a, b) => b.vol - a.vol);
-  return scored.slice(0, 250).map((x) => x.q);
+  return scored.slice(0, 80).map((x) => x.q);
 }
 
 type PaprikaTicker = {

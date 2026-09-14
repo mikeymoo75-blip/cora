@@ -85,7 +85,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   momentum: {
     label: "Ride the move",
-    blurb: "Buys when a name is up on the day and still ticking higher. Holds 10 minutes. Skips BTC/ETH at this ticket size — gas would eat the trade.",
+    blurb: "Buys liquid names up 3–18% on the day. Holds 20 minutes. 6% stop, +8% take profit. Skips thin junk and BTC/ETH at this ticket size.",
   },
   dca: {
     label: "Dip buyer",
@@ -93,7 +93,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Pump.fun only. Buys heat near the highs, then checks the bag every 15s even after it leaves the hot board. Sells on dump, fade off the high, 25 minutes, or a dead price. Never averages down.",
+    blurb: "Pump.fun only. Needs 2 minutes of tape, skips parabolic rips. Checks the bag every 5s. Sells on dump, fade, 12 minutes, or a dead price. Never averages down.",
   },
   scalp: {
     label: "Pump scalp",

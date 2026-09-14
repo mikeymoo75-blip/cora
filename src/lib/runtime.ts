@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickPumpExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { fetchMarketSnapshot, refreshHeldPumps, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
@@ -53,9 +53,9 @@ function defaultBots(): Bot[] {
       symbol: "BTC",
       kind: "crypto",
       strategy: "momentum",
-      sizeUsd: 25,
+      sizeUsd: 35,
       scope: "crypto",
-      maxNames: 4,
+      maxNames: 2,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -81,9 +81,9 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "sniper",
-      sizeUsd: 20,
+      sizeUsd: 12,
       scope: "pump",
-      maxNames: 3,
+      maxNames: 2,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -95,9 +95,9 @@ function defaultBots(): Bot[] {
       symbol: "pump:CORA",
       kind: "pump",
       strategy: "scalp",
-      sizeUsd: 20,
+      sizeUsd: 12,
       scope: "pump",
-      maxNames: 3,
+      maxNames: 2,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
@@ -294,7 +294,11 @@ function save(state: DeskState) {
   renameSync(tmp, file);
 }
 
-type G = typeof globalThis & { __coraDesk?: DeskState; __coraLoop?: ReturnType<typeof setInterval> };
+type G = typeof globalThis & {
+  __coraDesk?: DeskState;
+  __coraLoop?: ReturnType<typeof setInterval>;
+  __coraPumpLoop?: ReturnType<typeof setInterval>;
+};
 
 function g(): G {
   return globalThis as G;
@@ -305,9 +309,9 @@ function fitBotsToBank(state: DeskState): DeskState {
   let changed = false;
   const bots = state.bots.map((b) => {
     const f = fresh.get(b.id);
-    if (f && b.scope === "pump" && b.sizeUsd < f.sizeUsd) {
+    if (f && (b.scope === "pump" || b.id === "bot-scan-crypto") && b.sizeUsd < f.sizeUsd) {
       changed = true;
-      return { ...b, sizeUsd: f.sizeUsd, maxNames: Math.max(b.maxNames, f.maxNames) };
+      return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };
     }
     if (f && (b.sizeUsd > f.sizeUsd || b.maxNames > f.maxNames)) {
       changed = true;
@@ -542,6 +546,21 @@ export async function tickOnce(): Promise<DeskSnapshot> {
   return snapshot();
 }
 
+export async function tickHeldPumpExits(): Promise<void> {
+  const s = getState();
+  const held = Object.keys(s.positions).filter((id) => s.positions[id]?.kind === "pump");
+  if (!held.length) return;
+  try {
+    const fresh = await refreshHeldPumps(held);
+    let next = { ...s, quotes: mergeQuotes(s.quotes, fresh) };
+    next = tickPumpExits(next);
+    next = { ...next, loopAt: Date.now(), loopOk: true };
+    setState(next);
+  } catch (err) {
+    console.error("[cora] pump exit tick failed", err);
+  }
+}
+
 export function startDeskLoop() {
   if (g().__coraLoop) return;
   console.info("[cora] server desk loop on — bots run with the page closed");
@@ -551,6 +570,9 @@ export function startDeskLoop() {
   g().__coraLoop = setInterval(() => {
     void tickOnce();
   }, TICK_MS);
+  g().__coraPumpLoop = setInterval(() => {
+    void tickHeldPumpExits();
+  }, 5_000);
 }
 
 export function placeOrder(side: "buy" | "sell", symbol: string, notional: number, close = false) {

@@ -195,16 +195,16 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The dip either bounced enough to cover fees, hit a 5% stop, or sat long enough to give up.",
     },
     momentum: {
-      buy: "Price is up on the day and still ticking higher, so the bot is riding strength.",
-      sell: "The bounce faded, or the position is up about 5%, so the bot is taking profit / cutting.",
+      buy: "Price is up 3–18% on the day, still ticking higher, and liquid enough that fees will not eat the ticket.",
+      sell: "Hit the 6% stop, took about +8%, or sat 3 hours. No more fade-scalping.",
     },
     dca: {
       buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
       sell: "The position is up about 6% from cost, so the bot is cashing in.",
     },
     sniper: {
-      buy: "Pump.fun sniper: the coin is ripping and still near its highs. Tight stop — these can go to zero.",
-      sell: "Pump.fun sniper exit: dumped off the peak, hit the hard stop, sat 25 minutes, or the price feed died. No averaging down.",
+      buy: "Pump.fun sniper: the coin has 2 minutes of tape, is ripping, and is not already parabolic. Tight stop — these can go to zero.",
+      sell: "Pump.fun sniper exit: dumped off the peak, gapped down, hit the hard stop, sat 12 minutes, or the price feed died. No averaging down.",
     },
     scalp: {
       buy: "Pump.fun scalp: a short pop. This bot wants a quick hit, not a hold.",
@@ -353,32 +353,36 @@ export function pumpSignal(
     const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
     const fromEntry = pos.avg > 0 ? ((last - pos.avg) / pos.avg) * 100 : 0;
     const stale = quote.seenAt ? Date.now() - quote.seenAt > 90_000 : false;
-    const maxHold = style === "scalp" ? 12 * 60 * 1000 : 25 * 60 * 1000;
+    const maxHold = style === "scalp" ? 8 * 60 * 1000 : 12 * 60 * 1000;
     if (stale) return "sell";
     if (heldMs >= maxHold) return "sell";
+    const prev = spark.length >= 2 ? spark[spark.length - 2]! : last;
+    if (prev > 0 && last <= prev * 0.88) return "sell";
     if (style === "scalp") {
       if (fromPeak <= -3.5 || fromEntry <= -6 || fromEntry >= 10) return "sell";
       if (ticksFalling(spark, 2) && fromEntry < 2) return "sell";
     } else {
-      if (fromPeak <= -6 || fromEntry <= -8 || fromEntry >= 22) return "sell";
-      if (ticksFalling(spark, 3) && fromEntry < 4) return "sell";
+      if (fromPeak <= -4 || fromEntry <= -6 || fromEntry >= 18) return "sell";
+      if (ticksFalling(spark, 3) && fromEntry < 3) return "sell";
     }
     return "hold";
   }
 
-  if (spark.length < 2 || last <= 0) return "hold";
+  if (spark.length < 8 || last <= 0) return "hold";
 
-  const recent = spark.slice(style === "scalp" ? -4 : -6);
+  const recent = spark.slice(style === "scalp" ? -4 : -8);
   const recentHigh = Math.max(...recent);
   const rising = last >= (spark[spark.length - 2] ?? last);
   const nearHigh = last >= recentHigh * (style === "scalp" ? 0.96 : 0.94);
   const lookback = spark[spark.length - Math.min(spark.length, 6)] ?? last;
   const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : quote.changePct;
   const alreadyDumping = last < recentHigh * 0.9 || ret < -4;
+  const parabolic = ret > 18 || quote.changePct > 40;
+  if (quote.volume > 0 && quote.volume < 800) return "hold";
 
-  if (alreadyDumping || !rising || !nearHigh) return "hold";
-  if (style === "scalp" && ret > 3.5) return "buy";
-  if (style === "sniper" && ret > 5) return "buy";
+  if (alreadyDumping || !rising || !nearHigh || parabolic) return "hold";
+  if (style === "scalp" && ret > 3.5 && ret < 14) return "buy";
+  if (style === "sniper" && ret > 5 && ret < 16) return "buy";
   return "hold";
 }
 
@@ -418,7 +422,7 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
     spark.length >= 9 ? ((last - spark[spark.length - 9]!) / spark[spark.length - 9]!) * 100 : 0;
   const heldMs = pos?.openedAt ? Date.now() - pos.openedAt : 0;
   const fromEntry = pos ? ((last - pos.avg) / pos.avg) * 100 : 0;
-  const minHold = bot.strategy === "meanrev" || bot.strategy === "dca" ? 20 * 60 * 1000 : 10 * 60 * 1000;
+  const minHold = bot.strategy === "meanrev" || bot.strategy === "dca" || bot.strategy === "momentum" ? 20 * 60 * 1000 : 10 * 60 * 1000;
 
   switch (bot.strategy) {
     case "sma":
@@ -436,15 +440,17 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
       if (heldMs > 3 * 60 * 60 * 1000 && z > 0) return "sell";
       return "hold";
     case "momentum":
-      if (spark.length < 5) return "hold";
+      if (spark.length < 6) return "hold";
       {
-        const popping = ret8 > 1.0 || (quote.changePct >= 1.2 && ret8 > 0);
+        const liquid = quote.kind !== "crypto" || quote.volume >= 8_000_000;
+        const popping = quote.changePct >= 3 && quote.changePct <= 18 && ret8 > 0.15 && liquid;
         if (!pos && popping) return "buy";
       }
       if (!pos) return "hold";
-      if (fromEntry <= -4) return "sell";
+      if (fromEntry <= -6) return "sell";
       if (heldMs < minHold) return "hold";
-      if (ret8 < -1.2 || fromEntry >= 5) return "sell";
+      if (fromEntry >= 8) return "sell";
+      if (heldMs > 3 * 60 * 60 * 1000 && fromEntry > 1) return "sell";
       return "hold";
     case "dca":
       if (last < slow * 0.985 && !pos) return "buy";
@@ -705,7 +711,7 @@ export function tickBots(state: DeskState): DeskState {
           return `${q.symbol} ${sign}${fromEntry.toFixed(1)}%`;
         });
         bot.lastSignal = "watching";
-        bot.lastReason = `Watching ${bits.join(", ")} every 15s. Sells on dump, fade off the high, ${bot.strategy === "scalp" ? "12" : "25"} min, or a dead price feed.`;
+        bot.lastReason = `Watching ${bits.join(", ")} every 5s. Sells on dump, fade off the high, ${bot.strategy === "scalp" ? "8" : "12"} min, or a dead price feed.`;
         acted = true;
       }
     }
@@ -778,6 +784,49 @@ export function tickBots(state: DeskState): DeskState {
   const equitySeries = [...next.equity, { t: Date.now(), v }].slice(-480);
 
   return { ...next, bots, copyEvents, equity: equitySeries };
+}
+
+/** Fast path: re-mark held Pump.fun bags and sell if they dumped. Used every 5s. */
+export function tickPumpExits(state: DeskState): DeskState {
+  let next = ensureWallets(state);
+  const bots = next.bots.map((b) => ({ ...b }));
+  let sold = false;
+  for (const bot of bots) {
+    if (!bot.enabled) continue;
+    for (const sym of ownedSymbols(next, bot.id)) {
+      const pos = next.positions[sym];
+      const quote = next.quotes[sym];
+      if (!pos || pos.kind !== "pump" || !quote) continue;
+      next = {
+        ...next,
+        positions: {
+          ...next.positions,
+          [sym]: { ...pos, peak: Math.max(pos.peak, quote.price) },
+        },
+      };
+      if (pickSignal(bot, quote, next.positions[sym]) !== "sell") continue;
+      const reason = `${quote.symbol}: ${whyTrade(bot, quote, "sell")}`;
+      next = applyFill(
+        next,
+        "sell",
+        quote.id,
+        "pump",
+        pos.qty * quote.price,
+        "bot",
+        bot.name,
+        reason,
+        undefined,
+        bot.id,
+      );
+      bot.lastSignal = "sell";
+      bot.lastReason = reason;
+      bot.lastSold = { ...(bot.lastSold || {}), [sym]: Date.now() };
+      sold = true;
+    }
+  }
+  if (!sold) return { ...next, bots };
+  const v = markToMarket(next);
+  return { ...next, bots, equity: [...next.equity, { t: Date.now(), v }].slice(-480) };
 }
 
 export function mergeQuotes(
