@@ -80,6 +80,60 @@ export function buildReport(state: DeskState): DeskReport {
     }
   }
   lines.push("");
+  lines.push("SCANNER (last pass — why it bought, sold, or skipped)");
+  const scanners = state.bots.filter(
+    (b) => b.enabled && b.strategy !== "copy" && (b.lastScan?.length || b.lastReason),
+  );
+  if (!scanners.length) {
+    lines.push("  No scan yet. Wait ~15 seconds after the bots are on, then save again.");
+  }
+  for (const bot of scanners) {
+    const notes = bot.lastScan || [];
+    const whenScan = notes[0]?.ts
+      ? new Date(notes[0].ts).toLocaleTimeString("en-US", { timeZone: "America/New_York" })
+      : "";
+    lines.push(`  ${bot.name}${whenScan ? `  ${whenScan}` : ""}`);
+    const acts = notes.filter((n) => n.decision !== "skip");
+    const skips = notes.filter((n) => n.decision === "skip");
+    if (!notes.length && bot.lastReason) {
+      lines.push(`    ${bot.lastReason}`);
+      continue;
+    }
+    for (const n of acts) {
+      lines.push(`    ${n.decision.toUpperCase()}  ${n.ticker}  ${n.reason}`);
+    }
+    if (skips.length) {
+      const buckets = new Map<string, number>();
+      for (const n of skips) {
+        const r = n.reason.toLowerCase();
+        let key = "other";
+        if (r.includes("parabolic")) key = "parabolic";
+        else if (r.includes("dump")) key = "dumping";
+        else if (r.includes("ticks") || r.includes("tape")) key = "short tape";
+        else if (r.includes("thin") || r.includes("volume")) key = "too thin";
+        else if (r.includes("liquid")) key = "not liquid";
+        else if (r.includes("ripping") || r.includes("last tick")) key = "not ripping";
+        else if (r.includes("high")) key = "off the high";
+        else if (r.includes("move is") || (r.includes("only") && r.includes("day"))) key = "move too small";
+        else if (r.includes("day")) key = "not up 5–18%";
+        else if (r.includes("guard") || r.includes("kill")) key = "paused";
+        else if (r.includes("skew") || r.includes("cash")) key = "cash/inventory";
+        else if (r.includes("delay") || r.includes("gap") || r.includes("cool")) key = "cooldown";
+        buckets.set(key, (buckets.get(key) || 0) + 1);
+      }
+      const bits = [...buckets.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${n} ${k}`)
+        .join(", ");
+      lines.push(`    SKIP ${skips.length}: ${bits}`);
+      for (const n of skips.slice(0, 15)) {
+        lines.push(`    skip  ${n.ticker}  ${n.reason}`);
+      }
+      if (skips.length > 15) lines.push(`    … ${skips.length - 15} more skips`);
+    }
+    if (!acts.length && !skips.length) lines.push(`    ${bot.lastReason || "No names this pass."}`);
+  }
+  lines.push("");
   lines.push("OPEN POSITIONS");
   const pos = Object.values(state.positions);
   if (!pos.length) lines.push("  None.");
