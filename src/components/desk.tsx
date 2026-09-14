@@ -725,6 +725,12 @@ function HomePane({
   const [query, setQuery] = useState("");
   const [notional, setNotional] = useState(25);
   const [picked, setPicked] = useState("NVDA");
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, []);
+  const now = Date.now();
 
   return (
     <div className="space-y-6 px-4 py-5 md:px-8">
@@ -810,16 +816,38 @@ function HomePane({
               const mark = q?.price ?? p.avg;
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
+              const leftSec = q?.windowEnd ? (q.windowEnd - now) / 1000 : null;
+              const roundClock =
+                leftSec == null
+                  ? null
+                  : leftSec <= 0
+                    ? "settling"
+                    : `${clockLeft(leftSec)} left`;
               return (
                 <li key={p.symbol} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
                   <div className="flex items-baseline justify-between gap-2">
                     <div>
                       <p className="font-display text-xl font-semibold">{q?.symbol ?? p.symbol}</p>
-                      <p className="text-xs text-muted">{kindLabel(p.kind)}</p>
+                      <p className="text-xs text-muted">
+                        {kindLabel(p.kind)}
+                        {q?.horizon ? ` · ${q.horizon}` : ""}
+                      </p>
                     </div>
-                    <p className={cn("font-mono text-lg font-semibold tabular-nums", signedClass(mtm))}>
-                      {signedMoney(mtm)}
-                    </p>
+                    <div className="text-right">
+                      <p className={cn("font-mono text-lg font-semibold tabular-nums", signedClass(mtm))}>
+                        {signedMoney(mtm)}
+                      </p>
+                      {roundClock && (
+                        <p
+                          className={cn(
+                            "font-mono text-base font-semibold tabular-nums",
+                            leftSec != null && leftSec < 30 ? "text-down" : "text-fg",
+                          )}
+                        >
+                          {roundClock}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <p className="mt-2 font-mono text-xs text-muted">
                     {qtyFmt(p.qty)} · {money(value)} · avg{" "}
