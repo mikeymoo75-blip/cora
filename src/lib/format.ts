@@ -61,4 +61,28 @@ export function clock(ts: number): string {
   });
 }
 
+export function durationFmt(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (h < 48) return rm ? `${h}h ${rm}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh ? `${d}d ${rh}h` : `${d}d`;
+}
 
+export function runWindow(startedAt: number, endedAt: number): string {
+  if (!startedAt || !endedAt) return durationFmt(Math.max(0, endedAt - startedAt));
+  const start = new Date(startedAt);
+  const end = new Date(endedAt);
+  const sameDay = start.toDateString() === end.toDateString();
+  const t = (d: Date) =>
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const dayBit = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const span = sameDay ? `${t(start)} – ${t(end)}` : `${dayBit} ${t(start)} – ${t(end)}`;
+  return `${durationFmt(endedAt - startedAt)} · ${dayBit} · ${span}`;
+}
