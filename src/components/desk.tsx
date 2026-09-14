@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Area,
-  AreaChart,
-  ResponsiveContainer,
-} from "recharts";
-import {
   CircleAlert,
   ClipboardCopy,
   FileText,
@@ -122,11 +117,12 @@ export function Desk() {
         theme="light"
         toastOptions={{ className: "bg-surface text-fg border-border font-sans" }}
       />
-      <header className="px-4 pt-5 pb-3 md:px-8">
+      <div className="sticky top-0 z-30 border-b border-border/80 bg-bg/95 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+      <header className="px-4 pt-3 pb-2 md:px-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold tracking-widest text-core uppercase">Paper desk</p>
-            <h1 className="font-display text-3xl font-semibold tracking-tight md:text-4xl">Cora</h1>
+            <h1 className="font-display text-2xl font-semibold tracking-tight md:text-3xl">Cora</h1>
             <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted">
               {botsOn.length} bot{botsOn.length === 1 ? "" : "s"} on ·{" "}
               {desk.stockMarketOpen ? "US stocks open" : "US stocks closed"} · checked {ago(desk.loopAt)}
@@ -222,40 +218,25 @@ export function Desk() {
         )}
       </header>
 
-      <section className="grid gap-3 px-4 md:grid-cols-3 md:px-8">
+      <section className="grid grid-cols-3 gap-2 px-4 pb-2 md:gap-3 md:px-8">
         {(desk.walletViews || []).map((w) => (
           <WalletCard key={w.id} wallet={w} />
         ))}
-        <div className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
-          <p className="text-xs font-semibold tracking-wide text-muted uppercase">Today</p>
-          <p className={cn("mt-1 font-display text-3xl font-semibold tabular-nums", signedClass(dayPnl))}>
+        <div className="rounded-2xl bg-surface p-3 shadow-[var(--shadow-card)] md:p-4">
+          <p className="text-[10px] font-semibold tracking-wide text-muted uppercase md:text-xs">Today</p>
+          <p className={cn("mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl", signedClass(dayPnl))}>
             {signedMoney(dayPnl)}
           </p>
-          <p className="mt-1 text-sm text-muted">
+          <p className="mt-0.5 hidden text-sm text-muted md:block">
             Total {compactMoney(equity)} · cashed {signedMoney(desk.stats.realizedPnl)}
           </p>
-          <div className="mt-3 h-12">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={desk.equity.map((p) => ({ i: p.t, v: p.v }))}>
-                <Area
-                  type="monotone"
-                  dataKey="v"
-                  stroke="var(--color-core)"
-                  fill="var(--color-core)"
-                  fillOpacity={0.12}
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          <p className="mt-0.5 text-[11px] text-muted md:hidden">
+            {compactMoney(equity)}
+          </p>
         </div>
       </section>
 
-      <div className="mt-3 px-4 md:px-8">
-        <RiskBoard desk={desk} />
-      </div>
-
-      <nav className="mt-5 flex gap-1 overflow-x-auto px-4 md:px-8">
+      <nav className="flex gap-1 overflow-x-auto px-4 pb-2 md:px-8">
         {TABS.map((t) => (
           <button
             key={t}
@@ -270,6 +251,11 @@ export function Desk() {
           </button>
         ))}
       </nav>
+      </div>
+
+      <div className="mt-3 px-4 md:px-8">
+        <RiskBoard desk={desk} />
+      </div>
 
       {tab === "Home" && (
         <HomePane
@@ -328,17 +314,28 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
   return (
     <div
       className={cn(
-        "rounded-2xl p-4 text-surface shadow-[var(--shadow-card)]",
+        "rounded-2xl p-3 text-surface shadow-[var(--shadow-card)] md:p-4",
         poly ? "bg-poly" : "bg-core",
       )}
     >
-      <p className="text-xs font-semibold tracking-wide uppercase opacity-80">
-        {poly ? "Polymarket" : "Stocks + crypto"}
+      <p className="text-[10px] font-semibold tracking-wide uppercase opacity-80 md:text-xs">
+        {poly ? (
+          <>
+            <span className="md:hidden">Poly</span>
+            <span className="hidden md:inline">Polymarket</span>
+          </>
+        ) : (
+          <>
+            <span className="md:hidden">Core</span>
+            <span className="hidden md:inline">Stocks + crypto</span>
+          </>
+        )}
       </p>
-      <p className="mt-1 font-display text-3xl font-semibold tabular-nums">{compactMoney(wallet.equity)}</p>
-      <p className="mt-1 text-sm opacity-90">
-        cash {compactMoney(wallet.cash)} ·{" "}
-        <span className="font-semibold">{signedMoney(wallet.netPnl)}</span>
+      <p className="mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl">{compactMoney(wallet.equity)}</p>
+      <p className="mt-0.5 text-[11px] opacity-90 md:text-sm">
+        cash {compactMoney(wallet.cash)}
+        <span className="hidden md:inline"> · </span>
+        <span className="block font-semibold md:inline">{signedMoney(wallet.netPnl)}</span>
       </p>
     </div>
   );
