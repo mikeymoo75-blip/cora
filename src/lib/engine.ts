@@ -37,8 +37,6 @@ export const CRYPTO_MIN_VOL = 50_000_000;
 const RUNNER_LO = 4;
 const RUNNER_HI = 9;
 const DAILY_TRADES: Record<MarketKind, number> = { stock: 20, crypto: 30, poly: 32, pump: 8 };
-/** 5m/15m windows fire all night — 32/day would halt the desk by evening. */
-const HORIZON_DAILY_BUYS = 240;
 
 export function isEventKind(kind: MarketKind): boolean {
   return kind === "poly" || kind === "pump";
@@ -1263,9 +1261,8 @@ export function tickBots(state: DeskState): DeskState {
       const todayBuys = next.fills.filter(
         (f) => f.side === "buy" && f.kind === quote.kind && todayStamp(f.ts) === todayStamp(),
       ).length;
-      const buyCap = quote.horizon ? HORIZON_DAILY_BUYS : DAILY_TRADES[quote.kind];
-      if (todayBuys >= buyCap) {
-        pass.push(scanNote(bot, quote, "skip", `Daily trade cap (${buyCap} ${quote.kind} buys).`));
+      if (!quote.horizon && todayBuys >= DAILY_TRADES[quote.kind]) {
+        pass.push(scanNote(bot, quote, "skip", `Daily trade cap (${DAILY_TRADES[quote.kind]} ${quote.kind} buys).`));
         break;
       }
       const wid = walletIdFor(quote.kind);
