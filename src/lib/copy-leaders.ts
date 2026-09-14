@@ -44,7 +44,7 @@ export const COPY_LEADERS: CopyLeader[] = [
     role: "Hyperliquid",
     kind: "crypto-top",
     needles: [],
-    blurb: "Highest Hyperliquid wallet by 30-day PnL. We copy majors they are long. Not Pump.fun, not shorts.",
+    blurb: "Highest Hyperliquid wallet by 30-day PnL. We copy majors they are long. Not Polymarket, not shorts.",
   },
   {
     id: "hl-2",

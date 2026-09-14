@@ -20,6 +20,10 @@ export function signedClass(n: number): "text-primary" | "text-down" | "text-mut
   return "text-muted";
 }
 
+export function eventOdds(p: number): string {
+  return `${(p * 100).toFixed(1)}¢`;
+}
+
 export function compactMoney(n: number): string {
   const sign = n < 0 ? "-" : "";
   const a = Math.abs(n);

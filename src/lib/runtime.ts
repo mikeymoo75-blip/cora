@@ -6,7 +6,7 @@ import { buildReport } from "./report";
 import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { fetchMarketSnapshot, refreshHeldAll, yahooOne } from "./quotes-core";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
-import { CORE_SEEDS, PUMP_FALLBACK, seedQuote } from "./universe";
+import { CORE_SEEDS, POLY_FALLBACK, seedQuote } from "./universe";
 
 const STARTING = 1_000;
 const TICK_MS = 15_000;
@@ -75,36 +75,36 @@ function defaultBots(): Bot[] {
       lastReason: "Holds 20 min, skips BTC/ETH at this ticket size — gas would eat the trade.",
     },
     {
-      id: "bot-scan-pump",
-      name: "Scan Pump.fun · sniper",
+      id: "bot-scan-poly",
+      name: "Scan Polymarket · 5m/15m",
       enabled: true,
-      symbol: "pump:CORA",
-      kind: "pump",
+      symbol: "poly:fed",
+      kind: "poly",
       strategy: "sniper",
-      sizeUsd: 9,
-      scope: "pump",
-      maxNames: 1,
+      sizeUsd: 20,
+      scope: "poly",
+      maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
     },
     {
-      id: "bot-scan-pump-scalp",
-      name: "Scan Pump.fun · scalp",
+      id: "bot-scan-poly-fade",
+      name: "Scan Polymarket · fade",
       enabled: false,
-      symbol: "pump:CORA",
-      kind: "pump",
+      symbol: "poly:fed",
+      kind: "poly",
       strategy: "scalp",
-      sizeUsd: 9,
-      scope: "pump",
-      maxNames: 1,
+      sizeUsd: 12,
+      scope: "poly",
+      maxNames: 2,
       lastSignal: "idle",
       lastTickAt: 0,
       lastReason: "",
     },
     {
       id: "bot-scan-all",
-      name: "Scan everything",
+      name: "Scan stocks + crypto",
       enabled: false,
       symbol: "SPY",
       kind: "stock",
@@ -136,7 +136,7 @@ function defaultBots(): Bot[] {
 
 function seedQuotes(): Record<string, import("./types").Quote> {
   const out: Record<string, import("./types").Quote> = {};
-  for (const s of [...CORE_SEEDS, ...PUMP_FALLBACK]) out[s.id] = seedQuote(s);
+  for (const s of [...CORE_SEEDS, ...POLY_FALLBACK]) out[s.id] = seedQuote(s);
   return out;
 }
 
@@ -185,6 +185,8 @@ function load(): DeskState {
         "bot-btc",
         "bot-sol",
         "bot-pump",
+        "bot-scan-pump",
+        "bot-scan-pump-scalp",
       ]);
       bots = [
         ...base.bots.filter((b) => b.strategy !== "copy"),
@@ -198,9 +200,9 @@ function load(): DeskState {
     const mapped: Bot[] = bots.map((b) => ({
       ...b,
       lastReason: b.lastReason || "",
-      scope: b.scope || "one",
+      scope: b.scope === ("pump" as ScanScope) ? "poly" : b.scope || "one",
       maxNames: b.maxNames || (b.scope && b.scope !== "one" ? 4 : 1),
-      kind: b.leaderId?.startsWith("hl-") ? "crypto" : b.kind,
+      kind: b.leaderId?.startsWith("hl-") ? "crypto" : b.kind === "pump" ? "poly" : b.kind,
     }));
     const mergedQuotes = { ...base.quotes, ...(parsed.quotes || {}) };
     const fills = (parsed.fills || []).map((f) => ({
@@ -309,28 +311,49 @@ function g(): G {
 
 function fitBotsToBank(state: DeskState): DeskState {
   const fresh = new Map(defaultBots().map((b) => [b.id, b]));
-  let changed = false;
-  const bots = state.bots.map((b) => {
-    const f = fresh.get(b.id);
-    if (f && (b.scope === "pump" || b.id === "bot-scan-crypto") && b.sizeUsd < f.sizeUsd) {
-      changed = true;
-      return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };
-    }
-    if (f && (b.sizeUsd > f.sizeUsd || b.maxNames > f.maxNames)) {
-      changed = true;
-      return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };
-    }
-    if (b.id === "bot-scan-pump" && !b.enabled && !b.lastTickAt) {
-      changed = true;
-      return { ...b, enabled: true, lastReason: "Scanning live Pump.fun coins (hottest + newest)." };
-    }
-    if (!f && b.sizeUsd > 50) {
-      changed = true;
-      return { ...b, sizeUsd: 25 };
-    }
-    return b;
-  });
+  const dropped = state.bots.filter((b) => b.id === "bot-scan-pump" || b.id === "bot-scan-pump-scalp");
+  let changed = dropped.length > 0;
+  const bots = state.bots
+    .filter((b) => b.id !== "bot-scan-pump" && b.id !== "bot-scan-pump-scalp")
+    .map((b) => {
+      const f = fresh.get(b.id);
+      if (b.scope === ("pump" as ScanScope) || b.kind === "pump") {
+        changed = true;
+        return {
+          ...b,
+          scope: "poly" as ScanScope,
+          kind: "poly" as MarketKind,
+          enabled: false,
+          lastReason: "Pump.fun retired — use the Polymarket bots.",
+        };
+      }
+      if (f && b.id === "bot-scan-poly" && (b.name !== f.name || b.sizeUsd !== f.sizeUsd || b.maxNames !== f.maxNames || b.lockedUntil)) {
+        changed = true;
+        return { ...b, name: f.name, sizeUsd: f.sizeUsd, maxNames: f.maxNames, lockedUntil: undefined };
+      }
+      if (f && (b.sizeUsd > f.sizeUsd || b.maxNames > f.maxNames)) {
+        changed = true;
+        return { ...b, sizeUsd: f.sizeUsd, maxNames: f.maxNames };
+      }
+      if (!f && b.sizeUsd > 50) {
+        changed = true;
+        return { ...b, sizeUsd: 25 };
+      }
+      return b;
+    });
   return changed ? { ...state, bots } : state;
+}
+
+function ensurePolyBots(state: DeskState): DeskState {
+  const extras = defaultBots().filter((d) => d.scope === "poly");
+  const next = [...state.bots];
+  let added = false;
+  for (const d of extras) {
+    if (next.some((b) => b.id === d.id)) continue;
+    next.push(d);
+    added = true;
+  }
+  return added ? { ...state, bots: next } : state;
 }
 
 function ensureCopyLeaders(state: DeskState): DeskState {
@@ -349,12 +372,12 @@ export function getState(): DeskState {
   let cur = g().__coraDesk;
   if (cur && cur.startingCash >= 10_000) cur = undefined;
   if (!cur) {
-    cur = ensureCopyLeaders(ensureWallets(fitBotsToBank(load())));
+    cur = ensurePolyBots(ensureCopyLeaders(ensureWallets(fitBotsToBank(load()))));
     g().__coraDesk = cur;
     save(cur);
     return cur;
   }
-  cur = ensureCopyLeaders(ensureWallets(cur));
+  cur = ensurePolyBots(ensureCopyLeaders(ensureWallets(cur)));
   const fitted = fitBotsToBank(cur);
   if (fitted !== cur) {
     g().__coraDesk = fitted;
@@ -528,9 +551,9 @@ export async function tickOnce(): Promise<DeskSnapshot> {
             halted: false,
             haltReason: "",
           },
-          pump: {
-            ...e.wallets.pump,
-            dayStartEquity: walletEquity(e, "pump"),
+          poly: {
+            ...e.wallets.poly,
+            dayStartEquity: walletEquity(e, "poly"),
             halted: false,
             haltReason: "",
           },
@@ -565,6 +588,15 @@ export async function tickHeldExitsLoop(): Promise<void> {
 }
 
 export function startDeskLoop() {
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      const gg = g();
+      if (gg.__coraLoop) clearInterval(gg.__coraLoop);
+      if (gg.__coraPumpLoop) clearInterval(gg.__coraPumpLoop);
+      gg.__coraLoop = undefined;
+      gg.__coraPumpLoop = undefined;
+    });
+  }
   if (g().__coraLoop) return;
   console.info("[cora] server desk loop on — bots run with the page closed");
   setTimeout(() => {
@@ -708,7 +740,7 @@ export function resetBook(name?: string) {
 export async function addSymbol(raw: string) {
   const cleaned = raw.trim().toUpperCase().replace(/^\$/, "");
   if (!cleaned) return snapshot();
-  const existing = getState().quotes[cleaned] || getState().quotes[`pump:${cleaned}`];
+  const existing = getState().quotes[cleaned] || getState().quotes[`poly:${cleaned}`];
   if (existing) {
     setState({ ...getState(), selectedId: existing.id });
     return snapshot();
@@ -733,7 +765,7 @@ export function resumeHalt() {
     haltReason: "",
     wallets: {
       core: { ...s.wallets.core, halted: false, haltReason: "" },
-      pump: { ...s.wallets.pump, halted: false, haltReason: "" },
+      poly: { ...s.wallets.poly, halted: false, haltReason: "" },
     },
   });
   return snapshot();

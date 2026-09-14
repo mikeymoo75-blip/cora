@@ -1,4 +1,4 @@
-export type MarketKind = "stock" | "crypto" | "pump";
+export type MarketKind = "stock" | "crypto" | "poly" | "pump";
 
 export type StrategyId = "sma" | "meanrev" | "momentum" | "dca" | "sniper" | "scalp" | "copy";
 
@@ -15,6 +15,16 @@ export type Quote = {
   seenAt?: number;
   /** Bid-ask in basis points when we have a book. */
   spreadBps?: number;
+  /** Fair P(up) for 5m/15m crypto rounds. */
+  fair?: number;
+  windowStart?: number;
+  windowEnd?: number;
+  spot?: number;
+  openPx?: number;
+  pairId?: string;
+  leg?: "up" | "down";
+  asset?: string;
+  horizon?: "5m" | "15m";
 };
 
 export type Position = {
@@ -53,7 +63,7 @@ export type Fill = {
   holdMs?: number;
 };
 
-export type ScanScope = "one" | "stock" | "crypto" | "pump" | "all";
+export type ScanScope = "one" | "stock" | "crypto" | "poly" | "all";
 
 export type Bot = {
   id: string;
@@ -101,7 +111,7 @@ export type CopyEvent = {
 
 export type EquityPoint = { t: number; v: number };
 
-export type WalletId = "core" | "pump";
+export type WalletId = "core" | "poly";
 
 export type Wallet = {
   cash: number;

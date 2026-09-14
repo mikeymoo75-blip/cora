@@ -308,7 +308,7 @@ async function fetchHlPack(): Promise<{ events: CopyEvent[]; whales: WhaleSnap[]
       const snap: WhaleSnap = {
         id,
         name: `Crypto whale ${short}`,
-        detail: `Hyperliquid 30d ${pnlM} (${roiPct} ROI). ${coinBit} Paper longs only — not Pump.fun.`,
+        detail: `Hyperliquid 30d ${pnlM} (${roiPct} ROI). ${coinBit} Paper longs only — not Polymarket.`,
         address: w.address,
         coins,
         bookOk: book.ok,

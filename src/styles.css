@@ -12,6 +12,7 @@
   --color-sky: #1d5fbf;
   --color-core: #0c7a62;
   --color-pump: #c2410c;
+  --color-poly: #c2410c;
   --color-border: #e4d9c6;
   --font-sans: "Nunito Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Fraunces", ui-serif, Georgia, serif;
@@ -54,6 +55,55 @@
 
 .font-display {
   font-family: var(--font-display);
+}
+
+.round-odds {
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.round-pulse {
+  animation: round-pulse 1.6s ease-in-out infinite;
+}
+@keyframes round-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    filter: saturate(1);
+  }
+  50% {
+    opacity: 0.72;
+    filter: saturate(1.35);
+  }
+}
+.round-ring {
+  background: conic-gradient(var(--ring) var(--p), var(--color-border) 0);
+}
+.round-live-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: round-dot 1.4s ease-in-out infinite;
+}
+@keyframes round-dot {
+  0%,
+  100% {
+    r: 4.2;
+    opacity: 1;
+  }
+  50% {
+    r: 6;
+    opacity: 0.7;
+  }
+}
+.round-lock {
+  animation: round-lock 0.9s ease-in-out infinite;
+}
+@keyframes round-lock {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-down) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-down) 0%, transparent);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

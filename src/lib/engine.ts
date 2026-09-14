@@ -1,5 +1,6 @@
 import { calcFees, feeWouldEat, minTicketUsd, roundTripFee } from "./fees";
 import { slipBps } from "./universe";
+import { updownExplain } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -10,6 +11,7 @@ import type {
   Position,
   Quote,
   ScanNote,
+  ScanScope,
   StrategyId,
   Wallet,
   WalletId,
@@ -17,7 +19,8 @@ import type {
 } from "./types";
 
 export const CORE_START = 800;
-export const PUMP_START = 200;
+export const POLY_START = 200;
+export const PUMP_START = POLY_START;
 /** Max fraction of a wallet sitting in open bags. */
 export const MAX_DEPLOYED = 0.45;
 export const CRYPTO_MIN_VOL = 50_000_000;
@@ -28,14 +31,18 @@ const DAILY_LOSS: Record<StrategyId, number> = {
   dca: 0.02,
   momentum: 0.02,
   meanrev: 0.02,
-  sniper: 0.03,
+  sniper: 0.12,
   scalp: 0.03,
   copy: 0.02,
 };
-const DAILY_TRADES: Record<MarketKind, number> = { stock: 20, crypto: 30, pump: 15 };
+const DAILY_TRADES: Record<MarketKind, number> = { stock: 20, crypto: 30, poly: 32, pump: 8 };
+
+export function isEventKind(kind: MarketKind): boolean {
+  return kind === "poly" || kind === "pump";
+}
 
 export function walletIdFor(kind: MarketKind): WalletId {
-  return kind === "pump" ? "pump" : "core";
+  return isEventKind(kind) ? "poly" : "core";
 }
 
 export function blankWallets(): Record<WalletId, Wallet> {
@@ -47,10 +54,10 @@ export function blankWallets(): Record<WalletId, Wallet> {
       halted: false,
       haltReason: "",
     },
-    pump: {
-      cash: PUMP_START,
-      startingCash: PUMP_START,
-      dayStartEquity: PUMP_START,
+    poly: {
+      cash: POLY_START,
+      startingCash: POLY_START,
+      dayStartEquity: POLY_START,
       halted: false,
       haltReason: "",
     },
@@ -58,26 +65,52 @@ export function blankWallets(): Record<WalletId, Wallet> {
 }
 
 export function ensureWallets(state: DeskState): DeskState {
-  if (state.wallets?.core && state.wallets?.pump) {
-    const cash = state.wallets.core.cash + state.wallets.pump.cash;
-    let wallets = state.wallets;
-    for (const id of ["core", "pump"] as WalletId[]) {
-      const eq = walletEquity({ ...state, wallets }, id);
+  const incoming = (state.wallets || {}) as Record<string, Wallet | undefined>;
+  const polyFrom = incoming.poly || incoming.pump;
+  if (incoming.core && polyFrom) {
+    let wallets: Record<WalletId, Wallet> = { core: incoming.core, poly: { ...polyFrom } };
+    let positions = { ...(state.positions || {}) };
+    let quotes = { ...(state.quotes || {}) };
+    let polyCash = wallets.poly.cash;
+    for (const [id, p] of Object.entries(positions)) {
+      if (p.kind !== "pump") continue;
+      const q = quotes[id];
+      polyCash += p.qty * (q?.price || p.avg || 0);
+      delete positions[id];
+      delete quotes[id];
+    }
+    for (const id of Object.keys(quotes)) {
+      if (quotes[id]?.kind === "pump") delete quotes[id];
+    }
+    if (Math.abs(polyCash - wallets.poly.cash) > 0.009) {
+      wallets = { ...wallets, poly: { ...wallets.poly, cash: Math.round(polyCash * 100) / 100 } };
+    }
+    const cash = wallets.core.cash + wallets.poly.cash;
+    for (const id of ["core", "poly"] as WalletId[]) {
+      const eq = walletEquity({ ...state, wallets, positions, quotes }, id);
       const w = wallets[id];
       if (Math.abs(w.dayStartEquity - w.cash) < 1 && Math.abs(eq - w.cash) > 5) {
         wallets = { ...wallets, [id]: { ...w, dayStartEquity: eq } };
       }
     }
-    const pump = wallets.pump;
-    const holdingPump = Object.values(state.positions || {}).some((p) => p.kind === "pump");
-    if (pump.halted && (pump.cash >= 5 || holdingPump)) {
-      wallets = { ...wallets, pump: { ...pump, halted: false, haltReason: "" } };
+    const poly = wallets.poly;
+    const holdingPoly = Object.values(positions).some((p) => isEventKind(p.kind));
+    if (poly.halted && (poly.cash >= 5 || holdingPoly)) {
+      wallets = { ...wallets, poly: { ...poly, halted: false, haltReason: "" } };
     }
-    return { ...state, cash, wallets, reports: state.reports || [], scanTape: state.scanTape || [] };
+    return {
+      ...state,
+      cash,
+      wallets,
+      positions,
+      quotes,
+      reports: state.reports || [],
+      scanTape: state.scanTape || [],
+    };
   }
-  const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + PUMP_START;
+  const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
   const coreCash = Math.round(cash * 0.8 * 100) / 100;
-  const pumpCash = Math.round((cash - coreCash) * 100) / 100;
+  const polyCash = Math.round((cash - coreCash) * 100) / 100;
   const wallets: Record<WalletId, Wallet> = {
     core: {
       cash: coreCash,
@@ -86,10 +119,10 @@ export function ensureWallets(state: DeskState): DeskState {
       halted: false,
       haltReason: "",
     },
-    pump: {
-      cash: pumpCash,
-      startingCash: PUMP_START,
-      dayStartEquity: pumpCash,
+    poly: {
+      cash: polyCash,
+      startingCash: POLY_START,
+      dayStartEquity: polyCash,
       halted: false,
       haltReason: "",
     },
@@ -99,7 +132,7 @@ export function ensureWallets(state: DeskState): DeskState {
     ...built,
     wallets: {
       core: { ...wallets.core, dayStartEquity: walletEquity(built, "core") },
-      pump: { ...wallets.pump, dayStartEquity: walletEquity(built, "pump") },
+      poly: { ...wallets.poly, dayStartEquity: walletEquity(built, "poly") },
     },
   };
 }
@@ -120,12 +153,12 @@ export function markToMarket(
   state: Pick<DeskState, "cash" | "positions" | "quotes"> & Partial<Pick<DeskState, "wallets">>,
 ): number {
   const s = ensureWallets(state as DeskState);
-  return walletEquity(s, "core") + walletEquity(s, "pump");
+  return walletEquity(s, "core") + walletEquity(s, "poly");
 }
 
 export function walletViews(state: DeskState): WalletView[] {
   const s = ensureWallets(state);
-  return (["core", "pump"] as WalletId[]).map((id) => {
+  return (["core", "poly"] as WalletId[]).map((id) => {
     const w = s.wallets[id];
     const fills = s.fills.filter((f) => walletIdFor(f.kind) === id);
     const realizedPnl = fills.reduce((n, f) => n + (f.realizedPnl || 0), 0);
@@ -140,7 +173,7 @@ export function walletViews(state: DeskState): WalletView[] {
     const equity = walletEquity(s, id);
     return {
       id,
-      label: id === "core" ? "Stocks + crypto" : "Pump.fun",
+      label: id === "core" ? "Stocks + crypto" : "Polymarket",
       cash: w.cash,
       equity,
       startingCash: w.startingCash,
@@ -263,12 +296,12 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The position is up about 6% from cost, so the bot is cashing in.",
     },
     sniper: {
-      buy: "Pump.fun sniper: new listing or Dex runner, 5–16% rip, not parabolic.",
-      sell: "Pump.fun sniper exit: ROI table, trailing stop after +6%, hard −6.5%, 12 minutes, or a dead feed.",
+      buy: "5m/15m Up-Down: live BTC/ETH is mispriced vs Polymarket. Buy the cheap side.",
+      sell: "Round settled, unhedged stop, or the window closed.",
     },
     scalp: {
-      buy: "Pump.fun scalp: a short pop. This bot wants a quick hit, not a hold.",
-      sell: "Pump.fun scalp exit: took the pop, a small drop hit, 12 minutes passed, or the tape went dark. Out before a rug.",
+      buy: "Polymarket fade: YES dumped 3–8¢ then ticked back up. Quick mean-reversion, not a hold.",
+      sell: "Polymarket fade exit: +5¢, −4¢ stop, 90 minutes, or the market settled.",
     },
     copy: {
       buy: "The person this bot follows showed a public buy or a live long.",
@@ -385,7 +418,7 @@ export function applyFill(
     ...s0.wallets,
     [wid]: { ...book, cash },
   };
-  const other: WalletId = wid === "core" ? "pump" : "core";
+  const other: WalletId = wid === "core" ? "poly" : "core";
   return {
     ...s0,
     cash: cash + wallets[other].cash,
@@ -407,16 +440,15 @@ function ticksFalling(spark: number[], n: number): boolean {
 
 type RoiStep = { afterMin: number; pct: number };
 
-const PUMP_ROI_SNIPER: RoiStep[] = [
-  { afterMin: 0, pct: 18 },
-  { afterMin: 4, pct: 8 },
-  { afterMin: 8, pct: 3 },
-  { afterMin: 12, pct: 0 },
+const POLY_ROI_MOVER: RoiStep[] = [
+  { afterMin: 0, pct: 16 },
+  { afterMin: 45, pct: 8 },
+  { afterMin: 180, pct: 0 },
 ];
-const PUMP_ROI_SCALP: RoiStep[] = [
+const POLY_ROI_FADE: RoiStep[] = [
   { afterMin: 0, pct: 10 },
-  { afterMin: 3, pct: 4 },
-  { afterMin: 8, pct: 0 },
+  { afterMin: 30, pct: 4 },
+  { afterMin: 90, pct: 0 },
 ];
 const CRYPTO_ROI: RoiStep[] = [
   { afterMin: 0, pct: 10 },
@@ -443,114 +475,118 @@ function roiHit(heldMs: number, fromEntry: number, table: RoiStep[]): RoiStep | 
   return fromEntry >= step.pct ? step : null;
 }
 
-/** Pump.fun is not a stock. No dip-buying, tight trail, fast take-profit. */
+/** Polymarket YES contracts. Think in cents, not memecoin %. */
+export function polyExplain(
+  quote: Quote,
+  pos: Position | undefined,
+  style: "sniper" | "scalp",
+  other?: Position,
+): { action: "buy" | "sell" | "hold"; why: string } {
+  if (quote.horizon) return updownExplain(quote, pos, other);
+  if (style === "sniper") {
+    return { action: "hold", why: "5m/15m bot skips longer events — those use Fade." };
+  }
+  const spark = quote.spark;
+  const last = quote.price;
+  const cents = (from: number, to: number) => (to - from) * 100;
+
+  if (pos) {
+    if (!last || last <= 0) return { action: "sell", why: "Odds print died — getting out." };
+    if (last <= 0.02 || last >= 0.98) {
+      return { action: "sell", why: `Market settling at ${Math.round(last * 100)}¢.` };
+    }
+    const heldMs = pos.openedAt ? Date.now() - pos.openedAt : 0;
+    const heldMin = Math.round(heldMs / 60_000);
+    const fromEntryC = cents(pos.avg, last);
+    const fromPeakC = cents(pos.peak, last);
+    const fromEntryPct = pos.avg > 0 ? ((last - pos.avg) / pos.avg) * 100 : 0;
+    const stale = quote.seenAt ? Date.now() - quote.seenAt > 3 * 60 * 1000 : false;
+    const maxHold = style === "scalp" ? 90 * 60 * 1000 : 6 * 60 * 60 * 1000;
+    const minHold = 3 * 60 * 1000;
+    const hard = style === "scalp" ? -4 : -6;
+    if (fromEntryC <= hard) {
+      return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntryC).toFixed(1)}¢ from entry.` };
+    }
+    if (!stale && heldMs < minHold) {
+      return {
+        action: "hold",
+        why: `Min hold 3 min (${Math.round(heldMs / 1000)}s in). ${fromEntryC >= 0 ? "Up" : "Down"} ${Math.abs(fromEntryC).toFixed(1)}¢.`,
+      };
+    }
+    if (stale) return { action: "sell", why: "Odds feed went stale for 3 minutes." };
+    if (heldMs >= maxHold) {
+      return { action: "sell", why: `Time stop — held ${heldMin} min.` };
+    }
+    const table = style === "scalp" ? POLY_ROI_FADE : POLY_ROI_MOVER;
+    const hit = roiHit(heldMs, fromEntryPct, table);
+    if (hit) {
+      return {
+        action: "sell",
+        why: `Up ${fromEntryC.toFixed(1)}¢ (${fromEntryPct.toFixed(1)}%) after ${heldMin} min.`,
+      };
+    }
+    const offset = style === "scalp" ? 3 : 5;
+    const trail = style === "scalp" ? 2 : 3;
+    if (fromEntryC >= offset && fromPeakC <= -trail) {
+      return {
+        action: "sell",
+        why: `Trailing stop: locked after +${offset}¢, then faded ${Math.abs(fromPeakC).toFixed(1)}¢ off the peak.`,
+      };
+    }
+    const take = style === "scalp" ? 5 : 8;
+    if (fromEntryC >= take) {
+      return { action: "sell", why: `Take profit — up ${fromEntryC.toFixed(1)}¢.` };
+    }
+    return {
+      action: "hold",
+      why: `Watching YES at ${Math.round(last * 100)}¢. ${fromEntryC >= 0 ? "Up" : "Down"} ${Math.abs(fromEntryC).toFixed(1)}¢ from entry. Trail after +${offset}¢.`,
+    };
+  }
+
+  if (last <= 0) return { action: "hold", why: "No odds yet." };
+  if (!quote.live) return { action: "hold", why: "No live Polymarket price yet." };
+  if (last < 0.12 || last > 0.82) {
+    return { action: "hold", why: `YES at ${Math.round(last * 100)}¢ is too close to settled (wants 12–82¢).` };
+  }
+  if ((quote.volume || 0) < 25_000) {
+    return { action: "hold", why: `Too thin — 24h volume $${Math.round(quote.volume || 0).toLocaleString()}.` };
+  }
+  const spreadBps = quote.spreadBps || 0;
+  if (spreadBps > 500) {
+    const sc = (spreadBps * quote.price) / 100;
+    if (sc > 3) {
+      return { action: "hold", why: `Spread ${sc.toFixed(1)}¢ is too wide.` };
+    }
+  }
+  if (spark.length < 4) {
+    return { action: "hold", why: `Only ${spark.length} odds ticks — needs about a minute of tape.` };
+  }
+  const look = spark[spark.length - Math.min(spark.length, style === "scalp" ? 5 : 8)] ?? last;
+  const moveC = cents(look, last);
+  const rising = last >= (spark[spark.length - 2] ?? last);
+  if (style === "scalp") {
+    if (moveC > -3 || moveC < -8) {
+      return { action: "hold", why: `Dump is ${moveC.toFixed(1)}¢ — fade wants −3 to −8¢ then a bounce.` };
+    }
+    if (!rising) return { action: "hold", why: "Still dumping — wait for a tick back up." };
+    return { action: "buy", why: `Fade: YES dumped ${Math.abs(moveC).toFixed(1)}¢ and just ticked back up.` };
+  }
+  if (moveC < 3 || moveC > 10) {
+    return { action: "hold", why: `Move is ${moveC >= 0 ? "+" : ""}${moveC.toFixed(1)}¢ — movers want +3 to +10¢.` };
+  }
+  if (!rising) return { action: "hold", why: "Last tick was down, not still running." };
+  return { action: "buy", why: `Mover: YES jumped ${moveC.toFixed(1)}¢ and is still running at ${Math.round(last * 100)}¢.` };
+}
+
 export function pumpExplain(
   quote: Quote,
   pos: Position | undefined,
   style: "sniper" | "scalp",
+  other?: Position,
 ): { action: "buy" | "sell" | "hold"; why: string } {
-  const spark = quote.spark;
-  const last = quote.price;
-
-  if (pos) {
-    if (!last || last <= 0) return { action: "sell", why: "Price print died — getting out." };
-    const heldMs = pos.openedAt ? Date.now() - pos.openedAt : 0;
-    const heldSec = Math.round(heldMs / 1000);
-    const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
-    const fromEntry = pos.avg > 0 ? ((last - pos.avg) / pos.avg) * 100 : 0;
-    const stale = quote.seenAt ? Date.now() - quote.seenAt > 90_000 : false;
-    const maxHold = style === "scalp" ? 8 * 60 * 1000 : 12 * 60 * 1000;
-    const minHold = 2 * 60 * 1000;
-    const catastrophic = fromEntry <= -30;
-    if (!catastrophic && heldMs < minHold) {
-      return {
-        action: "hold",
-        why: `Min hold 2 min (${heldSec}s in). ${fromEntry >= 0 ? "Up" : "Down"} ${Math.abs(fromEntry).toFixed(1)}% from entry.`,
-      };
-    }
-    if (stale) return { action: "sell", why: "Price feed went stale for 90s." };
-    if (heldMs >= maxHold) {
-      return { action: "sell", why: `Time stop — held ${Math.round(heldMs / 60000)} min.` };
-    }
-    const prev = spark.length >= 2 ? spark[spark.length - 2]! : last;
-    if (heldMs >= 60_000 && prev > 0 && last <= prev * 0.85) {
-      return { action: "sell", why: "Gapped down more than 15% on one tick." };
-    }
-    const table = style === "scalp" ? PUMP_ROI_SCALP : PUMP_ROI_SNIPER;
-    const hit = roiHit(heldMs, fromEntry, table);
-    if (hit) {
-      return {
-        action: "sell",
-        why: `ROI table: up ${fromEntry.toFixed(1)}% after ${Math.round(heldMs / 60000)} min (needed ${hit.pct}%).`,
-      };
-    }
-    const offset = style === "scalp" ? 4 : 6;
-    const trail = style === "scalp" ? 3 : 4;
-    const hard = style === "scalp" ? -6 : -6.5;
-    if (fromEntry <= hard) {
-      return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
-    }
-    if (fromEntry >= offset && fromPeak <= -trail) {
-      return {
-        action: "sell",
-        why: `Trailing stop: locked after +${offset}%, then faded ${Math.abs(fromPeak).toFixed(1)}% off the peak.`,
-      };
-    }
-    const need = roiStep(heldMs, table);
-    return {
-      action: "hold",
-      why: `Watching. ${fromEntry >= 0 ? "Up" : "Down"} ${Math.abs(fromEntry).toFixed(1)}% from entry. Trail starts at +${offset}%. ROI now ${need.pct}% after ${need.afterMin} min.`,
-    };
-  }
-
-  if (last <= 0) return { action: "hold", why: "No price." };
-  const liquidEnough = quote.live && (quote.volume || 0) >= 8000 && quote.changePct > 5 && quote.changePct < 16;
-  if (spark.length < 8 && !liquidEnough) {
-    return { action: "hold", why: `Only ${spark.length} price ticks — needs 2 minutes of tape.` };
-  }
-  if (!quote.live) return { action: "hold", why: "No live price yet." };
-  const thin = !quote.volume || quote.volume < 2500;
-  if (thin && spark.length < 8) {
-    return { action: "hold", why: `New/thin — ${spark.length} ticks, volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}. Waiting for tape.` };
-  }
-
-  if (spark.length < 8) {
-    return {
-      action: "buy",
-      why: `New-coin runner: Dex/curve live, up ${quote.changePct.toFixed(1)}% while tape is still filling.`,
-    };
-  }
-  if (thin) {
-    const look = spark[spark.length - Math.min(spark.length, 6)] ?? last;
-    const rip = look > 0 ? ((last - look) / look) * 100 : 0;
-    if (rip <= 5 || rip >= 16) {
-      return { action: "hold", why: `Too thin — volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}, spark ${rip.toFixed(1)}%.` };
-    }
-  }
-
-  const recent = spark.slice(style === "scalp" ? -4 : -8);
-  const recentHigh = Math.max(...recent);
-  const rising = last >= (spark[spark.length - 2] ?? last);
-  const nearHigh = last >= recentHigh * (style === "scalp" ? 0.96 : 0.94);
-  const lookback = spark[spark.length - Math.min(spark.length, 6)] ?? last;
-  const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : quote.changePct;
-  const alreadyDumping = last < recentHigh * 0.9 || ret < -4;
-  const parabolic = ret > 18 || quote.changePct > 40;
-
-  if (alreadyDumping) return { action: "hold", why: `Already dumping (recent move ${ret.toFixed(1)}%).` };
-  if (!rising) return { action: "hold", why: "Last tick was down, not ripping." };
-  if (!nearHigh) return { action: "hold", why: "Too far off the recent high." };
-  if (parabolic) return { action: "hold", why: `Already parabolic (${ret.toFixed(1)}%) — too late.` };
-  if (style === "scalp" && ret > 3.5 && ret < 14) {
-    return { action: "buy", why: `Short pop, up ${ret.toFixed(1)}% and still near the high.` };
-  }
-  if (style === "sniper" && ret > 5 && ret < 16) {
-    return { action: "buy", why: `Up ${ret.toFixed(1)}% on recent tape, still near the high, Dex-priced.` };
-  }
-  return {
-    action: "hold",
-    why: `Move is ${ret.toFixed(1)}% — ${style} wants ${style === "scalp" ? "3.5–14" : "5–16"}%.`,
-  };
+  if (quote.kind === "poly") return polyExplain(quote, pos, style, other);
+  if (pos) return { action: "sell", why: "Pump.fun book is retired. Closing leftover bags." };
+  return { action: "hold", why: "Pump.fun scanning is off. Use Polymarket." };
 }
 
 export function pumpSignal(
@@ -565,20 +601,21 @@ export function explainSignal(
   bot: Bot,
   quote: Quote,
   pos?: Position,
+  other?: Position,
 ): { action: "buy" | "sell" | "hold"; why: string } {
-  if (quote.kind === "pump") {
-    return pumpExplain(quote, pos, bot.strategy === "scalp" ? "scalp" : "sniper");
+  if (quote.kind === "poly" || quote.kind === "pump") {
+    return pumpExplain(quote, pos, bot.strategy === "scalp" ? "scalp" : "sniper", other);
   }
   const use = bot.strategy === "sniper" || bot.strategy === "scalp" ? "momentum" : bot.strategy;
   return technicalExplain({ ...bot, strategy: use }, quote, pos);
 }
 
-export function pickSignal(bot: Bot, quote: Quote, pos?: Position): "buy" | "sell" | "hold" {
-  return explainSignal(bot, quote, pos).action;
+export function pickSignal(bot: Bot, quote: Quote, pos?: Position, other?: Position): "buy" | "sell" | "hold" {
+  return explainSignal(bot, quote, pos, other).action;
 }
 
 export function whyTrade(bot: Bot, quote: Quote, side: "buy" | "sell"): string {
-  if (quote.kind === "pump") {
+  if (quote.kind === "poly" || quote.kind === "pump") {
     return whySignal(bot.strategy === "scalp" ? "scalp" : "sniper", side);
   }
   const strat =
@@ -770,13 +807,15 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
     const q = state.quotes[bot.symbol];
     return q ? [q] : [];
   }
-  if (bot.scope === "pump") {
-    return all.filter((q) => q.kind === "pump" && q.live);
+  if (bot.scope === "poly" || bot.scope === ("pump" as ScanScope)) {
+    const live = all.filter((q) => q.kind === "poly" && q.live);
+    if (bot.strategy === "sniper") return live.filter((q) => q.horizon);
+    return live;
   }
   if (bot.scope === "crypto") {
     return all.filter((q) => q.kind === "crypto" && q.live && (q.volume || 0) >= CRYPTO_MIN_VOL);
   }
-  if (bot.scope === "all") return all.filter((q) => q.kind === "stock" || q.live);
+  if (bot.scope === "all") return all.filter((q) => q.kind === "stock" || q.kind === "crypto");
   return all.filter((q) => q.kind === bot.scope);
 }
 
@@ -786,12 +825,18 @@ function rankForBot(bot: Bot, quotes: Quote[]): Quote[] {
     const c = q.changePct;
     let s = q.live ? 10 : 0;
     if (dip) return s - c + Math.min(q.volume || 0, 1_000_000) / 1_000_000;
-    if (q.kind === "pump") {
-      if (c >= 5 && c <= 16) s += 80 - Math.abs(c - 9);
-      else if (c > 16 && c < 25) s += 12;
-      else if (c < 0) s -= 30;
-      if ((q.spark?.length || 0) < 10) s += 25;
-      s += Math.min(q.volume || 0, 80_000) / 8_000;
+    if (q.kind === "poly") {
+      if (q.horizon) {
+        const edge = Math.abs((q.fair ?? 0.5) - (q.leg === "down" ? 1 - q.price : q.price));
+        s += 40 + edge * 400;
+        if (q.horizon === "5m") s += 8;
+      } else if (c >= 4 && c <= 18) s += 80 - Math.abs(c - 10);
+      else if (c < 0 && c > -12 && bot.strategy === "scalp") s += 70 - Math.abs(c + 5);
+      else if (c > 18) s += 8;
+      s += Math.min(q.volume || 0, 2_000_000) / 80_000;
+      if ((q.spreadBps || 0) > 0 && (q.spreadBps || 0) < 250) s += 10;
+    } else if (q.kind === "pump") {
+      s -= 50;
     } else {
       if (c >= RUNNER_LO && c <= RUNNER_HI) s += 80 - Math.abs(c - 6.5);
       else if (c > 0) s += Math.min(c, 20);
@@ -810,6 +855,8 @@ function skipSummary(pass: ScanNote[]): string {
     const r = n.reason.toLowerCase();
     let key = "other";
     if (r.includes("parabolic")) key = "parabolic";
+    else if (r.includes("settling") || r.includes("settled")) key = "near settle";
+    else if (r.includes("¢") || r.includes("odds")) key = "odds window";
     else if (r.includes("dump")) key = "dumping";
     else if (r.includes("ticks") || r.includes("tape")) key = "short tape";
     else if (r.includes("thin") || r.includes("volume")) key = "too thin";
@@ -871,15 +918,15 @@ export function tickBots(state: DeskState): DeskState {
   let next: DeskState = ensureWallets({ ...state, manualLocks: keptLocks });
 
   const wallets = { ...next.wallets };
-  for (const id of ["core", "pump"] as WalletId[]) {
+  for (const id of ["core", "poly"] as WalletId[]) {
     const w = wallets[id];
-    if (id === "pump") {
-      const holding = Object.values(next.positions).some((p) => p.kind === "pump");
+    if (id === "poly") {
+      const holding = Object.values(next.positions).some((p) => isEventKind(p.kind));
       if (w.cash < 5 && !holding) {
         wallets[id] = {
           ...w,
           halted: true,
-          haltReason: "Pump.fun wallet is empty. It will trade again if you add cash or start a new test.",
+          haltReason: "Polymarket wallet is empty. It will trade again if you add cash or start a new test.",
         };
       } else if (w.halted) {
         wallets[id] = { ...w, halted: false, haltReason: "" };
@@ -893,9 +940,9 @@ export function tickBots(state: DeskState): DeskState {
   next = {
     ...next,
     wallets,
-    cash: wallets.core.cash + wallets.pump.cash,
-    halted: wallets.core.halted || wallets.pump.halted,
-    haltReason: [wallets.core.haltReason, wallets.pump.haltReason].filter(Boolean).join(" "),
+    cash: wallets.core.cash + wallets.poly.cash,
+    halted: wallets.core.halted || wallets.poly.halted,
+    haltReason: [wallets.core.haltReason, wallets.poly.haltReason].filter(Boolean).join(" "),
   };
 
   const bots = next.bots.map((b) => ({ ...b }));
@@ -916,16 +963,16 @@ export function tickBots(state: DeskState): DeskState {
       else break;
     }
     if (!bot.lockedUntil || bot.lockedUntil < Date.now()) {
-      const bank = next.wallets[bot.scope === "pump" ? "pump" : "core"]?.startingCash || CORE_START;
+      const bank = next.wallets[bot.scope === "poly" ? "poly" : "core"]?.startingCash || CORE_START;
       const dayPnl = todaySells.reduce((n, f) => n + (f.realizedPnl || 0), 0);
       const cap = DAILY_LOSS[bot.strategy] ?? 0.02;
       if (dayPnl <= -cap * bank) {
         bot.lockedUntil = Date.now() + msUntilEtMidnight();
         bot.lastReason = `${bot.name} hit its −${Math.round(cap * 100)}% daily loss. Off until tomorrow. Open bags still sell.`;
-      } else if (todayLosses.length >= 5) {
+      } else if (bot.strategy !== "sniper" && todayLosses.length >= 5) {
         bot.lockedUntil = Date.now() + msUntilEtMidnight();
         bot.lastReason = "5 losing sells today — this strategy is off until tomorrow. Open bags still sell.";
-      } else if (streak >= 3) {
+      } else if (bot.strategy !== "sniper" && streak >= 3) {
         bot.lockedUntil = Date.now() + 30 * 60 * 1000;
         bot.lastReason = "3 losses in a row — 30 min pause on new buys. Open bags still sell.";
       }
@@ -939,7 +986,7 @@ export function tickBots(state: DeskState): DeskState {
         bot.lastReason = unread
           ? bot.lastReason
           : bot.kind === "crypto"
-            ? "This wallet has no copyable longs right now (majors only, no shorts, not Pump.fun)."
+            ? "This wallet has no copyable longs right now (majors only, no shorts, not Polymarket)."
             : "Waiting for a new public filing or holding from this person.";
         bot.lastTickAt = Date.now();
         continue;
@@ -954,7 +1001,7 @@ export function tickBots(state: DeskState): DeskState {
           bot.lastReason = `No price yet for ${pending.ticker}.`;
           continue;
         }
-        if (quote.kind === "pump") {
+        if (isEventKind(quote.kind)) {
           pending.consumed = true;
           continue;
         }
@@ -999,7 +1046,7 @@ export function tickBots(state: DeskState): DeskState {
         const delayBit = pending.delayDays ? ` — ${pending.delayDays} days after the real trade` : "";
         const reason =
           quote.kind === "crypto"
-            ? `Copying ${pending.leaderName}'s ${pending.side === "buy" ? "long" : "exit"} in ${pending.ticker}. ${pending.amount}. Paper longs only — not Pump.fun.`
+            ? `Copying ${pending.leaderName}'s ${pending.side === "buy" ? "long" : "exit"} in ${pending.ticker}. ${pending.amount}. Paper longs only — not Polymarket.`
             : `${whySignal("copy", pending.side)} ${pending.leaderName}: ${pending.side} ${pending.ticker} (${pending.amount || "amount n/a"}), filed ${pending.disclosureDate || "n/a"}${delayBit}.`;
         next = applyFill(
           next,
@@ -1033,8 +1080,8 @@ export function tickBots(state: DeskState): DeskState {
     if (!universe.length) {
       bot.lastSignal = "no quote";
       bot.lastReason =
-        bot.scope === "pump"
-          ? "No live Pump.fun coins this pass."
+        bot.scope === "poly"
+          ? "No live Polymarket events this pass."
           : bot.scope === "crypto"
             ? "No crypto names with $50M+ volume this pass."
             : "Nothing to scan yet.";
@@ -1060,7 +1107,12 @@ export function tickBots(state: DeskState): DeskState {
           [sym]: { ...pos, peak: Math.max(pos.peak, quote.price) },
         },
       };
-      const explained = explainSignal(bot, quote, next.positions[sym]);
+      const explained = explainSignal(
+        bot,
+        quote,
+        next.positions[sym],
+        quote.pairId ? next.positions[quote.pairId] : undefined,
+      );
       if (explained.action === "hold") {
         pass.push(scanNote(bot, quote, "skip", explained.why));
         continue;
@@ -1088,18 +1140,18 @@ export function tickBots(state: DeskState): DeskState {
     }
 
     if (!acted) {
-      const heldPump = ownedSymbols(next, bot.id).filter((id) => next.positions[id]?.kind === "pump");
-      if (heldPump.length) {
-        const bits = heldPump.slice(0, 3).map((id) => {
+      const heldPoly = ownedSymbols(next, bot.id).filter((id) => isEventKind(next.positions[id]?.kind || "stock"));
+      if (heldPoly.length) {
+        const bits = heldPoly.slice(0, 3).map((id) => {
           const q = next.quotes[id];
           const p = next.positions[id];
           if (!q || !p) return id;
-          const fromEntry = p.avg > 0 ? ((q.price - p.avg) / p.avg) * 100 : 0;
-          const sign = fromEntry >= 0 ? "+" : "";
-          return `${q.symbol} ${sign}${fromEntry.toFixed(1)}%`;
+          const fromC = (q.price - p.avg) * 100;
+          const sign = fromC >= 0 ? "+" : "";
+          return `${q.symbol} ${sign}${fromC.toFixed(1)}¢`;
         });
         bot.lastSignal = "watching";
-        bot.lastReason = `Watching ${bits.join(", ")} every 10s. Sells on dump, fade off the high, ${bot.strategy === "scalp" ? "8" : "12"} min, or a dead price feed.`;
+        bot.lastReason = `Watching ${bits.join(", ")} every 10s. Sells on stop, trail, ${bot.strategy === "scalp" ? "90 min" : "6 hours"}, or settle.`;
         acted = true;
       }
     }
@@ -1107,38 +1159,49 @@ export function tickBots(state: DeskState): DeskState {
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
     const ranked = rankForBot(bot, universe);
-    let pumpCool = false;
-    if (bot.scope === "pump" || ranked.some((q) => q.kind === "pump")) {
-      const lastPump = next.fills.find((f) => f.botId === bot.id && f.kind === "pump");
-      pumpCool = !!(lastPump && Date.now() - lastPump.ts < 5 * 60 * 1000);
+    let polyCool = false;
+    if (bot.scope === "poly" || ranked.some((q) => q.kind === "poly")) {
+      const lastPoly = next.fills.find((f) => f.botId === bot.id && isEventKind(f.kind));
+      polyCool = !!(lastPoly && Date.now() - lastPoly.ts < 2 * 60 * 1000);
     }
     const lastFill = next.fills.find((f) => f.botId === bot.id);
-    const fillDelayMs = bot.scope === "pump" ? 0 : 90_000;
+    const fillDelayMs = bot.scope === "poly" ? 0 : 90_000;
     const fillDelay =
       fillDelayMs > 0 && lastFill && Date.now() - lastFill.ts < fillDelayMs
         ? Math.max(1, Math.round((fillDelayMs - (Date.now() - lastFill.ts)) / 1000))
         : 0;
+    let newDirectional = 0;
     for (const quote of ranked.slice(0, 60)) {
       if (next.positions[quote.id]) continue;
       if (fillDelay) {
         pass.push(scanNote(bot, quote, "skip", `Filled-order delay: wait ${fillDelay}s after the last fill.`));
         break;
       }
+      const hedging = !!(quote.pairId && next.positions[quote.pairId]);
       const widEarly = walletIdFor(quote.kind);
       const eqEarly = walletEquity(next, widEarly);
       const cashEarly = next.wallets[widEarly].cash;
-      if (eqEarly > 0 && cashEarly / eqEarly < 1 - MAX_DEPLOYED) {
+      const deployed = eqEarly > 0 ? 1 - cashEarly / eqEarly : 0;
+      if (!hedging && deployed >= MAX_DEPLOYED) {
         pass.push(
           scanNote(
             bot,
             quote,
             "skip",
-            `Exposure cap: ${Math.round((1 - cashEarly / eqEarly) * 100)}% of this wallet is already in bags (max ${Math.round(MAX_DEPLOYED * 100)}%).`,
+            `Exposure cap: ${Math.round(deployed * 100)}% of this wallet is already in bags (max ${Math.round(MAX_DEPLOYED * 100)}%).`,
           ),
         );
-        break;
+        continue;
       }
-      if (held >= maxNames) {
+      if (hedging && deployed >= 0.72) {
+        pass.push(scanNote(bot, quote, "skip", `Hedge cap: ${Math.round(deployed * 100)}% of this wallet is already in bags.`));
+        continue;
+      }
+      if (!hedging && quote.horizon && newDirectional >= 1) {
+        pass.push(scanNote(bot, quote, "skip", "One new round per tick — scales in as the next 15s print."));
+        continue;
+      }
+      if (held >= maxNames && !hedging) {
         pass.push(scanNote(bot, quote, "skip", `Already holding ${held}/${maxNames} names.`));
         continue;
       }
@@ -1154,8 +1217,25 @@ export function tickBots(state: DeskState): DeskState {
         pass.push(scanNote(bot, quote, "skip", "No new stock buys in the first 10 min or last 15 min."));
         continue;
       }
-      if ((quote.spreadBps || 0) > (quote.kind === "pump" ? 120 : quote.kind === "crypto" ? 25 : 30)) {
-        pass.push(scanNote(bot, quote, "skip", `Spread ${quote.spreadBps!.toFixed(0)} bps is too wide.`));
+      const spreadTooWide =
+        quote.kind === "poly"
+          ? ((quote.spreadBps || 0) * quote.price) / 100 > 3
+          : (quote.spreadBps || 0) > (quote.kind === "crypto" ? 25 : 30);
+      if (spreadTooWide && !quote.horizon) {
+        const sc =
+          quote.kind === "poly"
+            ? ((quote.spreadBps || 0) * quote.price) / 100
+            : quote.spreadBps || 0;
+        pass.push(
+          scanNote(
+            bot,
+            quote,
+            "skip",
+            quote.kind === "poly"
+              ? `Spread ${sc.toFixed(1)}¢ is too wide.`
+              : `Spread ${sc.toFixed(0)} bps is too wide.`,
+          ),
+        );
         continue;
       }
       if (bot.lockedUntil && bot.lockedUntil > Date.now()) {
@@ -1186,11 +1266,16 @@ export function tickBots(state: DeskState): DeskState {
         pass.push(scanNote(bot, quote, "skip", `Sold this recently — cooling ${left} min.`));
         continue;
       }
-      if (quote.kind === "pump" && pumpCool) {
-        pass.push(scanNote(bot, quote, "skip", "5-minute gap after the last Pump.fun trade."));
+      if (quote.kind === "poly" && polyCool && !quote.horizon && !hedging) {
+        pass.push(scanNote(bot, quote, "skip", "2-minute gap after the last Polymarket trade."));
         continue;
       }
-      const explained = explainSignal(bot, quote, undefined);
+      const explained = explainSignal(
+        bot,
+        quote,
+        undefined,
+        quote.pairId ? next.positions[quote.pairId] : undefined,
+      );
       if (explained.action !== "buy") {
         pass.push(scanNote(bot, quote, "skip", explained.why));
         continue;
@@ -1199,10 +1284,23 @@ export function tickBots(state: DeskState): DeskState {
       const cap =
         quote.kind === "crypto" && bot.strategy === "momentum"
           ? Math.min(bot.sizeUsd, 22)
-          : bot.strategy === "sniper" || bot.strategy === "scalp"
-            ? Math.min(bot.sizeUsd, 10)
-            : bot.sizeUsd;
-      const size = Math.min(cap, next.wallets[wid].cash * 0.1, eq * 0.05);
+          : quote.horizon
+            ? Math.min(bot.sizeUsd, 22)
+            : quote.kind === "poly"
+              ? Math.min(bot.sizeUsd, 16)
+              : bot.strategy === "sniper" || bot.strategy === "scalp"
+                ? Math.min(bot.sizeUsd, 10)
+                : bot.sizeUsd;
+      const sizeRaw = quote.horizon
+        ? Math.min(cap, next.wallets[wid].cash * 0.2, eq * 0.12)
+        : Math.min(cap, next.wallets[wid].cash * 0.1, eq * 0.05);
+      let size = sizeRaw;
+      if (hedging && quote.horizon && quote.pairId) {
+        const other = next.positions[quote.pairId];
+        const oq = next.quotes[quote.pairId];
+        const otherNotional = other && oq ? other.qty * oq.price : sizeRaw;
+        size = Math.min(sizeRaw, Math.max(minTicketUsd(quote.kind, quote.symbol), otherNotional * 0.45));
+      }
       const floor = minTicketUsd(quote.kind, quote.symbol);
       if (size < floor) {
         pass.push(scanNote(bot, quote, "skip", `Ticket $${size.toFixed(0)} is under the $${floor} min for ${quote.symbol}.`));
@@ -1210,7 +1308,7 @@ export function tickBots(state: DeskState): DeskState {
       }
       const rt = roundTripFee(quote.kind, quote.symbol, size);
       const edge = size * (expectedMovePct(bot.strategy) / 100);
-      if (edge < 3 * rt) {
+      if (!(hedging && quote.horizon) && edge < 3 * rt) {
         pass.push(
           scanNote(
             bot,
@@ -1245,6 +1343,7 @@ export function tickBots(state: DeskState): DeskState {
       bot.kind = quote.kind;
       pass.push(scanNote(bot, quote, "buy", explained.why));
       held += 1;
+      if (!hedging && quote.horizon) newDirectional += 1;
       acted = true;
     }
 
@@ -1267,7 +1366,7 @@ export function tickBots(state: DeskState): DeskState {
         universe.some((q) => q.kind === "stock") &&
         !rth &&
         bot.scope !== "crypto" &&
-        bot.scope !== "pump"
+        bot.scope !== "poly"
       ) {
         bot.lastReason += " Stock names wait until 9:30–4:00 ET.";
       }
@@ -1320,16 +1419,17 @@ export function tickHeldExits(state: DeskState): DeskState {
       enabled: true,
       symbol: pos.symbol,
       kind: pos.kind,
-      strategy: pos.kind === "pump" ? "sniper" : pos.kind === "crypto" ? "momentum" : "sma",
+      strategy: isEventKind(pos.kind) ? "sniper" : pos.kind === "crypto" ? "momentum" : "sma",
       sizeUsd: 0,
-      scope: pos.kind === "pump" ? "pump" : pos.kind === "crypto" ? "crypto" : "stock",
+      scope: isEventKind(pos.kind) ? "poly" : pos.kind === "crypto" ? "crypto" : "stock",
       maxNames: 1,
       lastSignal: "watching",
       lastTickAt: Date.now(),
       lastReason: "",
     };
     const actor = bot || dummy;
-    if (pickSignal(actor, quote, marked) !== "sell") continue;
+    const other = quote.pairId ? next.positions[quote.pairId] : undefined;
+    if (pickSignal(actor, quote, marked, other) !== "sell") continue;
     const reason = `${quote.symbol}: ${whyTrade(actor, quote, "sell")}`;
     next = applyFill(
       next,
@@ -1355,6 +1455,16 @@ export function tickHeldExits(state: DeskState): DeskState {
   return { ...next, bots, equity: [...next.equity, { t: Date.now(), v }].slice(-480) };
 }
 
+function horizonSpark(q: Quote, old?: Quote): number[] {
+  const spots = (arr: number[] | undefined) => (arr || []).filter((v) => v > 2);
+  const incoming = spots(q.spark);
+  if (incoming.length >= 2) return incoming.slice(-20);
+  const prev = spots(old?.spark);
+  const last = q.spot && q.spot > 2 ? q.spot : 0;
+  const next = last ? [...prev, last] : prev;
+  return next.slice(-20);
+}
+
 export function mergeQuotes(
   prev: Record<string, Quote>,
   incoming: Quote[],
@@ -1362,17 +1472,21 @@ export function mergeQuotes(
   const out = { ...prev };
   for (const q of incoming) {
     const old = out[q.id];
-    const spark = [...(old?.spark ?? []), q.price].slice(-48);
-    if (q.kind === "pump" && old && old.price > 0) {
-      const jump = Math.abs(q.price - old.price) / old.price;
-      const young = Date.now() - (old.seenAt || 0) < 45_000;
-      if (jump > 0.25 && young) {
+    const spark = q.horizon ? horizonSpark(q, old) : [...(old?.spark ?? []), q.price].slice(-48);
+    if (q.kind === "poly" && !q.horizon && old && old.price > 0) {
+      const jump = Math.abs(q.price - old.price);
+      const young = Date.now() - (old.seenAt || 0) < 20_000;
+      if (jump > 0.12 && young) {
         out[q.id] = { ...old, seenAt: Date.now() };
         continue;
       }
     }
     const base = spark.length >= 6 ? spark[spark.length - 6]! : spark[0]!;
-    const changePct = base > 0 ? ((q.price - base) / base) * 100 : q.changePct;
+    const changePct = q.horizon
+      ? q.changePct
+      : base > 0
+        ? ((q.price - base) / base) * 100
+        : q.changePct;
     out[q.id] = {
       ...q,
       spark,
@@ -1407,7 +1521,15 @@ export function prunePumpQuotes(
   liveIncoming: Quote[],
   held: Set<string>,
 ): Record<string, Quote> {
-  return pruneStaleQuotes(quotes, liveIncoming, held, "pump", 20 * 60 * 1000);
+  const droppedPump = pruneStaleQuotes(quotes, liveIncoming, held, "pump", 0);
+  const pruned = pruneStaleQuotes(droppedPump, liveIncoming, held, "poly", 45 * 60 * 1000);
+  const now = Date.now();
+  const out: Record<string, Quote> = {};
+  for (const q of Object.values(pruned)) {
+    if (q.horizon && q.windowEnd && q.windowEnd < now - 45_000 && !held.has(q.id)) continue;
+    out[q.id] = q;
+  }
+  return out;
 }
 
 export function todayStamp(at = Date.now()): string {

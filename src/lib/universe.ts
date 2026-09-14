@@ -43,13 +43,10 @@ export const CRYPTO: Seed[] = [
   { id: "HYPE", symbol: "HYPE", name: "Hyperliquid", kind: "crypto", yahoo: "HYPE-USD", seed: 42 },
 ];
 
-export const PUMP_FALLBACK: Seed[] = [
-  { id: "pump:CORA", symbol: "CORA", name: "Cora Coin", kind: "pump", seed: 0.00042 },
-  { id: "pump:BARN", symbol: "BARN", name: "Barn Cat", kind: "pump", seed: 0.00018 },
-  { id: "pump:HOOP", symbol: "HOOP", name: "Hardwood", kind: "pump", seed: 0.00007 },
-  { id: "pump:FARM", symbol: "FARM", name: "Datos Farm", kind: "pump", seed: 0.00031 },
-  { id: "pump:RIDGE", symbol: "RIDGE", name: "Ridgewood", kind: "pump", seed: 0.00012 },
-  { id: "pump:BLIP", symbol: "BLIP", name: "Blip", kind: "pump", seed: 0.00005 },
+export const POLY_FALLBACK: Seed[] = [
+  { id: "poly:fed", symbol: "FED", name: "Fed decision (placeholder)", kind: "poly", seed: 0.55 },
+  { id: "poly:btc", symbol: "BTC-100K", name: "Bitcoin milestone (placeholder)", kind: "poly", seed: 0.42 },
+  { id: "poly:election", symbol: "ELECTION", name: "Politics market (placeholder)", kind: "poly", seed: 0.48 },
 ];
 
 export const CORE_SEEDS = [...STOCKS, ...CRYPTO];
@@ -71,6 +68,7 @@ export function seedQuote(s: Seed): Quote {
 export function slipBps(kind: MarketKind): number {
   if (kind === "stock") return 5;
   if (kind === "crypto") return 12;
+  if (kind === "poly") return 25;
   return 80;
 }
 
@@ -92,17 +90,17 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
     blurb: "Buys a set dollar amount when price is stretched below its recent average (z-score). Holds 20 minutes. Sells around +6% or a 3.5% stop.",
   },
   sniper: {
-    label: "Pump sniper",
-    blurb: "Scans new Pump.fun listings and Dex runners. Buys a 5–16% rip, trails after +6%, hard −6.5%. $9 tickets. 5-minute gap.",
+    label: "5m / 15m Up-Down",
+    blurb: "BTC & ETH 5m/15m rounds. Fair from live spot vs Price-to-Beat plus a 1-minute momentum tilt. Buys the cheap side; if price reverses it buys the other leg instead of dumping. Holds hedged pairs to settle. ~$20 tickets.",
   },
   scalp: {
-    label: "Pump scalp",
-    blurb: "Pump.fun only. In on a pop, watches every 15s, out at about +10%, a small drop, 12 minutes, or a dead tape.",
+    label: "Fade stretch",
+    blurb: "Longer Polymarket events only. Buys a dumped YES (3–8¢ off) that ticks back up. +5¢ target, −4¢ stop, 90 minutes max.",
   },
   copy: {
     label: "Copy a person",
     blurb:
-      "Mirrors a star investor’s public book, a Hyperliquid whale’s longs, or STOCK Act filings. Stocks are delayed. Crypto is paper longs only — not Pump.fun.",
+      "Mirrors a star investor’s public book, a Hyperliquid whale’s longs, or STOCK Act filings. Stocks are delayed. Crypto is paper longs only — not Polymarket.",
   },
 };
 
@@ -119,12 +117,12 @@ export const SCOPE_COPY: Record<ScanScope, { label: string; blurb: string }> = {
     label: "Scan all crypto",
     blurb: "Looks through Bitcoin, ETH, SOL, and the rest of the crypto list.",
   },
-  pump: {
-    label: "Scan Pump.fun",
-    blurb: "Uses Pump.fun rules only — tight stops, fast exits, no dip-buying.",
+  poly: {
+    label: "Scan Polymarket",
+    blurb: "BTC/ETH 5- and 15-minute Up/Down, plus longer events for Fade. Never spends stocks/crypto cash.",
   },
   all: {
-    label: "Scan everything",
-    blurb: "Stocks and crypto use the rule you pick. Pump.fun coins still use the volatile pump rules.",
+    label: "Scan stocks + crypto",
+    blurb: "Looks through stocks and crypto. Polymarket has its own bots so it cannot mix rules.",
   },
 };

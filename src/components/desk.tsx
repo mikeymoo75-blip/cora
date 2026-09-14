@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -15,9 +15,10 @@ import {
   Users,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
+import { PriceRace } from "@/components/spark";
 import { cn } from "@/lib/cn";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
-import { ago, clock, compactMoney, durationFmt, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
+import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
 import type {
   BotScore,
@@ -62,7 +63,8 @@ const SIZES = [10, 25, 50];
 function kindLabel(k: MarketKind) {
   if (k === "stock") return "Stock";
   if (k === "crypto") return "Crypto";
-  return "Pump.fun";
+  if (k === "poly") return "Polymarket";
+  return "Pump.fun (retired)";
 }
 
 export function Desk() {
@@ -167,7 +169,7 @@ export function Desk() {
           <div className="mt-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
             <p className="font-display text-lg font-semibold">Start a fresh $1,000 test</p>
             <p className="mt-1 text-sm text-muted">
-              $800 stocks + crypto, $200 Pump.fun. Saves this run. Bots stay as they are.
+              $800 stocks + crypto, $200 Polymarket. Saves this run. Bots stay as they are.
             </p>
             <input
               value={resetName}
@@ -315,16 +317,16 @@ export function Desk() {
 }
 
 function WalletCard({ wallet }: { wallet: WalletView }) {
-  const pump = wallet.id === "pump";
+  const poly = wallet.id === "poly";
   return (
     <div
       className={cn(
         "rounded-2xl p-4 text-surface shadow-[var(--shadow-card)]",
-        pump ? "bg-pump" : "bg-core",
+        poly ? "bg-poly" : "bg-core",
       )}
     >
       <p className="text-xs font-semibold tracking-wide uppercase opacity-80">
-        {pump ? "Pump.fun" : "Stocks + crypto"}
+        {poly ? "Polymarket" : "Stocks + crypto"}
       </p>
       <p className="mt-1 font-display text-3xl font-semibold tabular-nums">{compactMoney(wallet.equity)}</p>
       <p className="mt-1 text-sm opacity-90">
@@ -332,6 +334,248 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
         <span className="font-semibold">{signedMoney(wallet.netPnl)}</span>
       </p>
     </div>
+  );
+}
+
+function fmtSpot(n: number) {
+  if (!(n > 0)) return "—";
+  return n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 2 : 4 });
+}
+
+function RoundBoard({
+  quotes,
+  positions,
+  fills,
+  onBuy,
+}: {
+  quotes: Quote[];
+  positions: Record<string, Position>;
+  fills: Fill[];
+  onBuy: (id: string, notional: number) => void;
+}) {
+  const [, tick] = useState(0);
+  const [pick, setPick] = useState("BTC-5m");
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, []);
+  const now = Date.now();
+  type Round = {
+    key: string;
+    asset: string;
+    horizon: string;
+    up?: Quote;
+    down?: Quote;
+  };
+  const map = new Map<string, Round>();
+  for (const q of quotes) {
+    if (!q.horizon || !q.asset) continue;
+    const key = `${q.asset}-${q.horizon}`;
+    const row = map.get(key) || { key, asset: q.asset, horizon: q.horizon };
+    if (q.leg === "down") row.down = q;
+    else row.up = q;
+    map.set(key, row);
+  }
+  const rounds = [...map.values()]
+    .filter((r) => r.up)
+    .sort((a, b) => {
+      const ah = a.horizon === "5m" ? 0 : 1;
+      const bh = b.horizon === "5m" ? 0 : 1;
+      if (ah !== bh) return ah - bh;
+      return a.asset.localeCompare(b.asset);
+    });
+  const roundKeys = rounds.map((r) => r.key).join("|");
+  useEffect(() => {
+    const keys = roundKeys.split("|").filter(Boolean);
+    if (keys.length && !keys.includes(pick)) setPick(keys[0]!);
+  }, [pick, roundKeys]);
+  if (!rounds.length) return null;
+
+  const featured = rounds.find((r) => r.key === pick) || rounds[0]!;
+  const q = featured.up!;
+  const total = featured.horizon === "15m" ? 900 : 300;
+  const left = Math.max(0, ((q.windowEnd || now) - now) / 1000);
+  const p = Math.max(0, Math.min(1, left / total));
+  const upPx = q.price;
+  const dnPx = featured.down?.price ?? 1 - upPx;
+  const fair = q.fair ?? 0.5;
+  const spot = q.spot || 0;
+  const open = q.openPx || 0;
+  const delta = open ? ((spot - open) / open) * 100 : 0;
+  const leadingUp = spot >= open;
+  const mm = Math.floor(left / 60);
+  const ss = Math.floor(left % 60)
+    .toString()
+    .padStart(2, "0");
+  const edge = Math.abs(fair - upPx);
+  const upPos = q.id ? positions[q.id] : undefined;
+  const dnPos = featured.down?.id ? positions[featured.down.id] : undefined;
+  const hedged = !!(upPos && dnPos);
+  const tape = fills
+    .filter((f) => {
+      const qq = quotes.find((x) => x.id === f.symbol);
+      return qq?.horizon;
+    })
+    .slice(0, 6);
+  const urgent = left < 30;
+
+  return (
+    <section>
+      <div className="mb-3">
+        <h2 className="font-display text-2xl font-semibold">Live rounds</h2>
+        <p className="text-sm text-muted">
+          BTC & ETH, 5 and 15 minutes. Fair vs Polymarket. Buys the cheap side — hedges the other, never dumps.
+        </p>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {rounds.map((r) => {
+          const rq = r.up!;
+          const rLeft = Math.max(0, ((rq.windowEnd || now) - now) / 1000);
+          const heldHere = !!(positions[rq.id] || (r.down && positions[r.down.id]));
+          return (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => setPick(r.key)}
+              className={cn(
+                "min-h-11 rounded-full px-4 text-sm font-semibold transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+                pick === r.key ? "bg-fg text-bg" : "bg-surface text-muted shadow-[var(--shadow-card)]",
+              )}
+            >
+              {r.asset} {r.horizon}
+              {heldHere ? " · in" : ""}
+              <span className="ml-1 font-mono text-xs tabular-nums opacity-80">
+                {Math.floor(rLeft / 60)}:{Math.floor(rLeft % 60).toString().padStart(2, "0")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <article
+        className={cn(
+          "overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] md:p-5",
+          urgent && "round-lock",
+        )}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted uppercase">
+              <span className="round-pulse inline-block size-2 rounded-full bg-down" />
+              Live · {featured.asset} {featured.horizon}
+              {hedged ? " · hedged" : upPos ? " · long UP" : dnPos ? " · long DN" : ""}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-8">
+              <div>
+                <p className="text-xs font-semibold tracking-wide text-muted uppercase">Price to Beat</p>
+                <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums tracking-tight md:text-3xl">
+                  {fmtSpot(open)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold tracking-wide text-muted uppercase">Live</p>
+                <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums tracking-tight md:text-3xl">
+                  {fmtSpot(spot)}
+                </p>
+                <p className={cn("text-xs font-medium tabular-nums", leadingUp ? "text-primary" : "text-down")}>
+                  {open ? `${delta >= 0 ? "+" : ""}${delta.toFixed(3)}%` : "Waiting for open"}
+                  {leadingUp ? " · UP winning" : " · DOWN winning"}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div
+            className="round-ring grid size-20 shrink-0 place-items-center rounded-full"
+            style={{
+              ["--p" as string]: `${p * 360}deg`,
+              ["--ring" as string]: urgent ? "var(--color-down)" : "var(--color-primary)",
+            }}
+          >
+            <span className="grid size-[3.75rem] place-items-center rounded-full bg-surface font-mono text-sm font-semibold tabular-nums">
+              {mm}:{ss}
+            </span>
+          </div>
+        </div>
+        <div className="mt-4">
+          <PriceRace spark={q.spark} open={open} />
+          <div className="mt-1 flex justify-between text-[11px] text-muted">
+            <span>Open</span>
+            <span className="font-mono">target {fmtSpot(open)}</span>
+            <span>Now</span>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => onBuy(q.id, 20)}
+            className={cn(
+              "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+              leadingUp ? "bg-primary/15" : "bg-elevated",
+            )}
+          >
+            <div className="flex items-baseline justify-between">
+              <span className={cn("font-display text-xl font-semibold", leadingUp && "round-pulse text-primary")}>
+                Up
+              </span>
+              <span className="font-mono text-xl font-semibold tabular-nums">{(upPx * 100).toFixed(0)}¢</span>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              fair {(fair * 100).toFixed(0)}¢
+              {upPos ? ` · you ${qtyFmt(upPos.qty)} @ ${(upPos.avg * 100).toFixed(0)}¢` : ""}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => featured.down && onBuy(featured.down.id, 20)}
+            className={cn(
+              "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+              !leadingUp ? "bg-down/15" : "bg-elevated",
+            )}
+          >
+            <div className="flex items-baseline justify-between">
+              <span className={cn("font-display text-xl font-semibold", !leadingUp && "round-pulse text-down")}>
+                Down
+              </span>
+              <span className="font-mono text-xl font-semibold tabular-nums">{(dnPx * 100).toFixed(0)}¢</span>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              fair {((1 - fair) * 100).toFixed(0)}¢
+              {dnPos ? ` · you ${qtyFmt(dnPos.qty)} @ ${(dnPos.avg * 100).toFixed(0)}¢` : ""}
+            </p>
+          </button>
+        </div>
+        <div className="relative mt-3 h-3 overflow-hidden rounded-full bg-elevated">
+          <div className="round-odds absolute inset-y-0 left-0 bg-primary" style={{ width: `${upPx * 100}%` }} />
+          <div
+            className="absolute top-0 h-full w-0.5 bg-fg"
+            style={{ left: `${fair * 100}%` }}
+            title="Fair value"
+          />
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          {hedged
+            ? "Both sides on. Holding the pair to settle — that's the hedge, not a dump."
+            : edge >= 0.06
+              ? `Edge ${(edge * 100).toFixed(1)}¢ — bot can take the cheap side.`
+              : `Edge ${(edge * 100).toFixed(1)}¢ — waiting for a real misprice (6¢).`}
+        </p>
+        {tape.length > 0 && (
+          <ul className="mt-3 space-y-1 border-t border-border pt-3">
+            {tape.map((f) => {
+              const qq = quotes.find((x) => x.id === f.symbol);
+              return (
+                <li key={f.id} className="flex justify-between gap-3 font-mono text-[11px] text-muted">
+                  <span>
+                    {f.source === "bot" ? "bot" : "you"} {f.side} {qq?.symbol ?? f.symbol} @{" "}
+                    {(f.price * 100).toFixed(0)}¢
+                  </span>
+                  <span>{ago(f.ts)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </article>
+    </section>
   );
 }
 
@@ -359,6 +603,12 @@ function HomePane({
 
   return (
     <div className="space-y-6 px-4 py-5 md:px-8">
+      <RoundBoard
+        quotes={Object.values(desk.quotes)}
+        positions={desk.positions}
+        fills={desk.fills}
+        onBuy={onBuy}
+      />
       <section>
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
@@ -391,12 +641,12 @@ function HomePane({
             }}
           >
             <p className="text-sm font-semibold">Override the bots</p>
-            <p className="mt-1 text-xs text-muted">Pays from the matching wallet. Pump.fun stays in its $200.</p>
+            <p className="mt-1 text-xs text-muted">Pays from the matching wallet. Polymarket stays in its $200.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="AAPL, BTC, a Pump mint…"
+                placeholder="AAPL, BTC, or a Polymarket ticker…"
                 className="min-h-11 min-w-40 flex-1 rounded-md bg-elevated px-3 text-sm outline-none"
               />
               {SIZES.map((n) => (
@@ -447,7 +697,9 @@ function HomePane({
                     </p>
                   </div>
                   <p className="mt-2 font-mono text-xs text-muted">
-                    {qtyFmt(p.qty)} · {money(value)} · avg {money(p.avg)}
+                    {qtyFmt(p.qty)} · {money(value)} · avg{" "}
+                    {p.kind === "poly" ? eventOdds(p.avg) : money(p.avg)}
+                    {q && p.kind === "poly" ? ` · now ${eventOdds(mark)}` : ""}
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button
@@ -562,16 +814,16 @@ function BotsPane({
   const pumpStrats: StrategyId[] = ["sniper", "scalp"];
   const bookStrats: StrategyId[] = ["sma", "meanrev", "momentum", "dca"];
   const stratOptions =
-    scope === "pump" ? pumpStrats : scope === "all" ? [...bookStrats, ...pumpStrats] : bookStrats;
+    scope === "poly" ? pumpStrats : scope === "all" ? bookStrats : bookStrats;
   const activeStrategy = stratOptions.includes(strategy) ? strategy : stratOptions[0]!;
-  const maxNames = scope === "one" ? 1 : scope === "pump" ? 3 : scope === "all" ? 6 : 4;
+  const maxNames = scope === "one" ? 1 : scope === "poly" ? 3 : scope === "all" ? 6 : 4;
 
   return (
     <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1.2fr)_minmax(16rem,0.8fr)] md:px-8">
       <div>
         <h2 className="font-display text-2xl font-semibold">Scan bots</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted">
-          These hunt stocks, crypto, and Pump.fun. People to copy live on the Copy tab — not here.
+          These hunt stocks, crypto, and BTC/ETH 5m & 15m Polymarket rounds. People to copy live on the Copy tab.
         </p>
         <Scoreboard scores={desk.scores} />
         <ul className="mt-4 space-y-2">
@@ -747,7 +999,7 @@ function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: strin
         <h2 className="font-display text-2xl font-semibold">Copy people</h2>
       </div>
       <p className="rounded-2xl bg-sky/10 px-4 py-3 text-sm leading-relaxed text-sky">
-        Turn one On. Filings are late. Crypto whales are paper longs only — not Pump.fun, not shorts.
+        Turn one On. Filings are late. Crypto whales are paper longs only — not Polymarket, not shorts.
       </p>
       {groups.map((g) => {
         const bots = copyBots.filter((b) => {
@@ -818,9 +1070,14 @@ function LogPane({
     { id: "all", label: "All" },
     { id: "stock", label: "Stocks" },
     { id: "crypto", label: "Crypto" },
-    { id: "pump", label: "Pump.fun" },
+    { id: "poly", label: "Polymarket" },
   ];
-  const fills = logTab === "all" ? desk.fills : desk.fills.filter((f) => f.kind === logTab);
+  const fills =
+    logTab === "all"
+      ? desk.fills
+      : logTab === "poly"
+        ? desk.fills.filter((f) => f.kind === "poly" || f.kind === "pump")
+        : desk.fills.filter((f) => f.kind === logTab);
   const sellPnl = fills.filter((f) => f.side === "sell").reduce((n, f) => n + (f.realizedPnl || 0), 0);
   const fees = fills.reduce((n, f) => n + f.fee, 0);
 
@@ -889,8 +1146,8 @@ function LogPane({
             <li className="text-sm text-muted">
               {logTab === "all"
                 ? "No trades yet."
-                : logTab === "pump"
-                  ? "No Pump.fun trades yet."
+                : logTab === "poly"
+                  ? "No Polymarket trades yet."
                   : logTab === "crypto"
                     ? "No crypto trades yet."
                     : "No stock trades yet."}
@@ -976,7 +1233,13 @@ function FillRow({ fill, symbol }: { fill: Fill; symbol: string }) {
       </div>
       <p className="mt-1 text-xs text-muted">
         {who}
-        {fill.kind === "pump" ? " · Pump.fun" : fill.kind === "crypto" ? " · crypto" : " · stock"}
+        {fill.kind === "poly" || fill.kind === "pump"
+          ? fill.kind === "poly"
+            ? " · Polymarket"
+            : " · Pump.fun (old)"
+          : fill.kind === "crypto"
+            ? " · crypto"
+            : " · stock"}
       </p>
       {fill.side === "buy" ? (
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-xs">

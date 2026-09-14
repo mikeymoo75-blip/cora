@@ -1,6 +1,6 @@
 # Cora Desktop (`cora`)
 
-24/7 server paper desk for stocks, crypto, and Pump.fun-style coins.
+24/7 server paper desk for stocks, crypto, and Polymarket events.
 Paper bank is **$1,000**, sized like real money. Bots keep running after
 you close the browser. You can also buy and sell yourself at any time —
 you do not wait for a bot. Fills, fees, and P/L persist on disk. No live
@@ -31,3 +31,15 @@ cd /opt/cora && git pull && sudo docker compose up -d --build
 ```
 
 Book and bot state live in the `cora-data` Docker volume.
+
+## Polymarket 5m / 15m
+
+The $200 isolated book trades Bitcoin and Ethereum **Up or Down** windows
+(not Pump.fun). Fair value is live Binance spot versus Price-to-Beat,
+with 1-minute realized vol and a small momentum tilt. The bot buys the
+cheap side when the book is ≥6¢ off fair. If spot reverses it **buys the
+other leg** instead of dumping, then holds the pair to settle.
+
+Home shows a live Price-to-Beat race: countdown, UP/DOWN odds, and the
+spot line versus the open. Paper only.
+

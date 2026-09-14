@@ -14,7 +14,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Paper trading desk for stocks, crypto, and Pump.fun-style memecoins. Simulated fills only.",
+          "Paper trading desk for stocks, crypto, and Polymarket events. Simulated fills only.",
       },
       { name: "theme-color", content: "#f3eee4" },
     ],

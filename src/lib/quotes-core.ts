@@ -1,5 +1,6 @@
-import { CORE_SEEDS, PUMP_FALLBACK, STOCKS, seedQuote } from "./universe";
+import { CORE_SEEDS, POLY_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
+import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses } from "./updown";
 
 async function fetchJson(
   url: string,
@@ -23,13 +24,6 @@ async function fetchJson(
     clearTimeout(t);
   }
 }
-
-const PUMP_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-  Origin: "https://pump.fun",
-  Referer: "https://pump.fun/",
-};
 
 type YahooQuote = {
   symbol?: string;
@@ -71,7 +65,7 @@ export async function yahooQuotes(): Promise<Quote[]> {
 }
 
 export async function yahooOne(symbol: string): Promise<Quote | null> {
-  const ticker = symbol.replace(/^pump:/, "").toUpperCase();
+  const ticker = symbol.replace(/^(pump:|poly:)/, "").toUpperCase();
   try {
     const json = (await fetchJson(
       `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}`,
@@ -123,211 +117,307 @@ async function binanceOne(sym: string): Promise<Quote | null> {
 export async function refreshHeldAll(
   held: { id: string; kind: Quote["kind"] }[],
 ): Promise<Quote[]> {
-  const pumpIds = held.filter((h) => h.kind === "pump").map((h) => h.id);
+  const polyIds = held.filter((h) => h.kind === "poly" || h.kind === "pump").map((h) => h.id);
   const crypto = held.filter((h) => h.kind === "crypto");
   const stocks = held.filter((h) => h.kind === "stock");
-  const [pump, coins, shares] = await Promise.all([
-    refreshHeldPumps(pumpIds),
+  const [poly, coins, shares] = await Promise.all([
+    refreshHeldPoly(polyIds),
     Promise.all(crypto.map((h) => binanceOne(h.id))),
     Promise.all(stocks.map((h) => yahooOne(h.id))),
   ]);
-  return [...pump, ...coins.filter((q): q is Quote => !!q), ...shares.filter((q): q is Quote => !!q)];
+  return [...poly, ...coins.filter((q): q is Quote => !!q), ...shares.filter((q): q is Quote => !!q)];
 }
 
-type PumpCoin = {
-  mint?: string;
-  name?: string;
-  symbol?: string;
-  usd_market_cap?: number;
-  market_cap?: number;
-  virtual_sol_reserves?: number;
-  virtual_token_reserves?: number;
-  volume_24h?: number;
-  nsfw?: boolean;
+type GammaMarket = {
+  id?: string;
+  question?: string;
+  slug?: string;
+  outcomes?: string | string[];
+  outcomePrices?: string | string[] | number[];
+  volume?: string | number;
+  volume24hr?: number;
+  liquidity?: string | number;
+  bestBid?: number;
+  bestAsk?: number;
+  closed?: boolean;
+  active?: boolean;
+  enableOrderBook?: boolean;
+  endDate?: string;
+  startDate?: string;
 };
 
-function coinToQuote(c: PumpCoin, solUsd: number, i: number): Quote | null {
-  const mint = (c.mint || "").trim();
-  if (!mint) return null;
-  const supply = 1_000_000_000;
-  const usdMc = Number(c.usd_market_cap ?? c.market_cap ?? 0);
-  let price = usdMc > 0 ? usdMc / supply : 0;
-  if (!price && c.virtual_sol_reserves && c.virtual_token_reserves) {
-    price = (c.virtual_sol_reserves / c.virtual_token_reserves) * solUsd;
+type GammaEvent = {
+  title?: string;
+  slug?: string;
+  markets?: GammaMarket[];
+};
+
+const POLY_STOP = new Set([
+  "will",
+  "the",
+  "be",
+  "a",
+  "an",
+  "in",
+  "of",
+  "to",
+  "for",
+  "on",
+  "after",
+  "by",
+  "and",
+  "or",
+  "at",
+  "vs",
+]);
+
+function parseJsonArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v === "string") {
+    try {
+      const p = JSON.parse(v);
+      return Array.isArray(p) ? p.map(String) : [];
+    } catch {
+      return [];
+    }
   }
-  if (!price || !Number.isFinite(price)) price = 0.00001 * (i + 1);
-  const sym = (c.symbol || "MEME").replace(/^\$/, "").toUpperCase().slice(0, 10);
+  return [];
+}
+
+function polyTicker(slug: string, question: string): string {
+  const raw = (slug || question || "poly").toLowerCase().replace(/-\d+$/, "");
+  const words = raw.split(/[^a-z0-9]+/).filter((w) => w && !POLY_STOP.has(w) && w.length > 1);
+  return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
+}
+
+function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
+  if (!m.id) return null;
+  if (!allowSettled && (m.closed || m.active === false)) return null;
+  const prices = parseJsonArray(m.outcomePrices).map(Number);
+  const yes = prices[0];
+  if (!Number.isFinite(yes) || yes < 0) return null;
+  const vol = Number(m.volume24hr ?? m.volume ?? 0);
+  const liq = Number(m.liquidity ?? 0);
+  if (!allowSettled && vol < 20_000 && liq < 10_000) return null;
+  const bid = Number(m.bestBid);
+  const ask = Number(m.bestAsk);
+  let spreadBps: number | undefined;
+  if (bid > 0 && ask > bid) spreadBps = ((ask - bid) / ((ask + bid) / 2)) * 10_000;
+  const px = Math.min(0.999, Math.max(0.001, yes || (allowSettled ? 0.001 : 0)));
   return {
-    id: `pump:${mint}`,
-    symbol: sym || mint.slice(0, 6).toUpperCase(),
-    name: c.name || sym,
-    kind: "pump",
-    price,
+    id: `poly:${m.id}`,
+    symbol: polyTicker(m.slug || "", m.question || ""),
+    name: m.question || m.slug || `Market ${m.id}`,
+    kind: "poly",
+    price: px,
     changePct: 0,
-    volume: Number(c.volume_24h ?? 0),
-    spark: [price],
+    volume: vol || liq,
+    spark: [px],
     live: true,
+    spreadBps,
   };
 }
 
-async function pumpFunBoard(solUsd: number): Promise<Quote[]> {
-  const jobs: string[] = [
-    "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
-    "https://frontend-api-v3.pump.fun/coins?offset=50&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
-    "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
-    "https://frontend-api-v3.pump.fun/coins?offset=0&limit=24&sort=market_cap&order=DESC&includeNsfw=false",
-    "https://frontend-api-v3.pump.fun/coins/king-of-the-hill",
+async function polyBoard(): Promise<Quote[]> {
+  const [events, rounds] = await Promise.all([
+    polyEventBoard().catch(() => [] as Quote[]),
+    fetchUpDownRounds().catch(() => [] as Quote[]),
+  ]);
+  const byId = new Map<string, Quote>();
+  for (const q of events) byId.set(q.id, q);
+  for (const q of rounds) byId.set(q.id, q);
+  const ranked = [...byId.values()].sort((a, b) => {
+    const ah = a.horizon ? 1 : 0;
+    const bh = b.horizon ? 1 : 0;
+    if (ah !== bh) return bh - ah;
+    return (b.volume || 0) - (a.volume || 0);
+  });
+  if (ranked.length) return ranked.slice(0, 56);
+  return POLY_FALLBACK.map((s) => seedQuote(s));
+}
+
+async function polyEventBoard(): Promise<Quote[]> {
+  const urls = [
+    "https://gamma-api.polymarket.com/markets?active=true&closed=false&order=volume24hr&ascending=false&limit=50",
+    "https://gamma-api.polymarket.com/markets?active=true&closed=false&order=liquidity&ascending=false&limit=40",
   ];
   const byId = new Map<string, Quote>();
   await Promise.all(
-    jobs.map(async (url) => {
+    urls.map(async (url) => {
       try {
-        const json = await fetchJson(url, 7000, PUMP_HEADERS);
-        const rows = Array.isArray(json)
-          ? (json as PumpCoin[])
-          : json && typeof json === "object"
-            ? [json as PumpCoin]
-            : [];
-        rows.forEach((c, i) => {
-          const q = coinToQuote(c, solUsd, i);
-          if (q && !byId.has(q.id)) byId.set(q.id, q);
+        const json = await fetchJson(url, 9000, {
+          "User-Agent": "Mozilla/5.0 (compatible; CoraDesktop/1.0; +https://cora.datosfarm.com)",
         });
+        const rows = Array.isArray(json) ? (json as GammaMarket[]) : [];
+        for (const m of rows) {
+          const q = marketToQuote(m);
+          if (!q) continue;
+          if (q.price < 0.1 || q.price > 0.9) continue;
+          const prev = byId.get(q.id);
+          if (!prev || q.volume > prev.volume) byId.set(q.id, q);
+        }
       } catch {
-        /* next */
+        /* next page */
       }
     }),
   );
-  return [...byId.values()];
+  return [...byId.values()].sort((a, b) => b.volume - a.volume).slice(0, 24);
 }
 
-type DexPair = {
-  chainId?: string;
-  baseToken?: { address?: string; name?: string; symbol?: string };
-  priceUsd?: string;
-  priceChange?: { m5?: number; h1?: number };
-  volume?: { h24?: number; h1?: number; m5?: number };
-  liquidity?: { usd?: number };
-};
-
-function pairToPumpQuote(p: DexPair, seen: Set<string>): Quote | null {
-  if (p.chainId && p.chainId !== "solana") return null;
-  const mint = (p.baseToken?.address || "").trim();
-  if (!mint || seen.has(mint)) return null;
-  const price = Number(p.priceUsd);
-  if (!price || !Number.isFinite(price)) return null;
-  const vol = Number(p.volume?.h1 ?? 0) * 24 || Number(p.volume?.h24 ?? 0) || Number(p.volume?.m5 ?? 0) * 288;
-  const liq = Number(p.liquidity?.usd ?? 0);
-  if (vol < 2000 && liq < 3000) return null;
-  seen.add(mint);
-  const sym = (p.baseToken?.symbol || "MEME").toUpperCase().slice(0, 10);
-  return {
-    id: `pump:${mint}`,
-    symbol: sym,
-    name: p.baseToken?.name || sym,
-    kind: "pump",
-    price,
-    changePct: Number(p.priceChange?.m5 ?? p.priceChange?.h1 ?? 0),
-    volume: vol || liq,
-    spark: [price],
-    live: true,
-  };
-}
-
-async function dexPumpBoard(): Promise<Quote[]> {
-  const seen = new Set<string>();
-  const out: Quote[] = [];
-  for (const q of ["pump.fun", "pump solana"]) {
-    try {
-      const json = (await fetchJson(
-        `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`,
-        7000,
-      )) as { pairs?: DexPair[] };
-      for (const p of json.pairs || []) {
-        const row = pairToPumpQuote(p, seen);
-        if (row) out.push(row);
-        if (out.length >= 50) return out;
-      }
-    } catch {
-      /* next query */
+async function fetchBinanceTape(
+  symbol: string,
+): Promise<{ spot: number; rows: { t: number; o: number; c: number }[] } | null> {
+  try {
+    const [klines, ticker] = await Promise.all([
+      fetchJson(
+        `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=1m&limit=30`,
+        6000,
+      ),
+      fetchJson(`https://data-api.binance.vision/api/v3/ticker/price?symbol=${symbol}`, 4000),
+    ]);
+    const raw = Array.isArray(klines) ? (klines as unknown[]) : [];
+    const rows: { t: number; o: number; c: number }[] = [];
+    for (const row of raw) {
+      if (!Array.isArray(row)) continue;
+      const t = Number(row[0]);
+      const o = Number(row[1]);
+      const c = Number(row[4]);
+      if (t > 0 && c > 0) rows.push({ t, o, c });
     }
+    const spot = Number((ticker as { price?: string })?.price) || rows[rows.length - 1]?.c || 0;
+    if (!spot || !rows.length) return null;
+    return { spot, rows };
+  } catch {
+    return null;
   }
+}
+
+function openFromTape(
+  rows: { t: number; o: number; c: number }[],
+  windowStart: number,
+  horizon: "5m" | "15m",
+): number {
+  const hit = rows.find((r) => r.t === windowStart);
+  if (hit?.o) return hit.o;
+  const interval = horizon === "15m" ? 900_000 : 300_000;
+  const inside = rows.find((r) => r.t >= windowStart && r.t < windowStart + interval && r.o > 0);
+  return inside?.o || 0;
+}
+
+function windowCloses(
+  rows: { t: number; o: number; c: number }[],
+  windowStart: number,
+  spot: number,
+): number[] {
+  const inside = rows.filter((r) => r.t >= windowStart).map((r) => r.c);
+  const tape = inside.length >= 2 ? inside : rows.map((r) => r.c).slice(-15);
+  if (!tape.length) return [spot];
+  if (tape[tape.length - 1] !== spot) tape.push(spot);
+  return tape.slice(-20);
+}
+
+async function fetchUpDownRounds(): Promise<Quote[]> {
+  const windows = currentWindows();
+  const symbols = [...new Set(windows.map((w) => w.binance))];
+  const tapes = new Map<string, { spot: number; rows: { t: number; o: number; c: number }[] }>();
+  await Promise.all(
+    symbols.map(async (sym) => {
+      const tape = await fetchBinanceTape(sym);
+      if (tape) tapes.set(sym, tape);
+    }),
+  );
+  const out: Quote[] = [];
+  await Promise.all(
+    windows.map(async (w) => {
+      try {
+        const json = await fetchJson(
+          `https://gamma-api.polymarket.com/events?slug=${encodeURIComponent(w.slug)}`,
+          7000,
+          { "User-Agent": "Mozilla/5.0 (compatible; CoraDesktop/1.0; +https://cora.datosfarm.com)" },
+        );
+        const ev = Array.isArray(json) ? (json as GammaEvent[])[0] : (json as GammaEvent);
+        const m = ev?.markets?.[0];
+        if (!m?.id) return;
+        const prices = parseJsonArray(m.outcomePrices).map(Number);
+        const upPx = Number.isFinite(prices[0]) ? prices[0]! : 0.5;
+        const downPx = Number.isFinite(prices[1]) ? prices[1]! : Math.max(0.001, 1 - upPx);
+        const tape = tapes.get(w.binance);
+        const open = tape ? openFromTape(tape.rows, w.windowStart, w.horizon) : 0;
+        const spot = tape?.spot || 0;
+        const closes = tape ? tape.rows.map((r) => r.c) : [];
+        const sigma1m = sigmaFromCloses(closes);
+        const { mom } = momFromCloses(closes);
+        const tau = Math.max(0, (w.windowEnd - Date.now()) / 1000);
+        const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : 0.5;
+        const spark = tape && open ? windowCloses(tape.rows, w.windowStart, spot) : [spot || upPx];
+        const vol = Number(m.volume24hr ?? m.volume ?? 0);
+        const bid = Number(m.bestBid);
+        const ask = Number(m.bestAsk);
+        let spreadBps: number | undefined;
+        if (bid > 0 && ask > bid) spreadBps = ((ask - bid) / ((ask + bid) / 2)) * 10_000;
+        const upId = `poly:${m.id}:up`;
+        const downId = `poly:${m.id}:down`;
+        const base = {
+          kind: "poly" as const,
+          live: true,
+          volume: vol,
+          spreadBps,
+          fair,
+          windowStart: w.windowStart,
+          windowEnd: w.windowEnd,
+          spot: spot || undefined,
+          openPx: open || undefined,
+          asset: w.asset,
+          horizon: w.horizon,
+          spark,
+        };
+        const delta = spot && open ? ((spot - open) / open) * 100 : 0;
+        out.push({
+          ...base,
+          id: upId,
+          symbol: `${w.asset}-${w.horizon}-UP`,
+          name: ev?.title || `${w.asset} Up ${w.horizon}`,
+          price: Math.min(0.999, Math.max(0.001, upPx)),
+          changePct: delta,
+          pairId: downId,
+          leg: "up",
+        });
+        out.push({
+          ...base,
+          id: downId,
+          symbol: `${w.asset}-${w.horizon}-DN`,
+          name: `${w.asset} Down ${w.horizon}`,
+          price: Math.min(0.999, Math.max(0.001, downPx)),
+          changePct: -delta,
+          pairId: upId,
+          leg: "down",
+        });
+      } catch {
+        /* skip this window */
+      }
+    }),
+  );
   return out;
 }
 
-async function pumpQuotes(solUsd: number): Promise<Quote[]> {
-  const [fresh, dex] = await Promise.all([pumpFunBoard(solUsd), dexPumpBoard()]);
-  const byId = new Map<string, Quote>();
-  for (const q of fresh) byId.set(q.id, q);
-  for (const q of dex) {
-    const old = byId.get(q.id);
-    if (old) {
-      byId.set(q.id, {
-        ...old,
-        price: q.price || old.price,
-        volume: Math.max(old.volume || 0, q.volume || 0),
-        changePct: q.changePct || old.changePct,
-        live: true,
-      });
-    } else {
-      byId.set(q.id, q);
-    }
-  }
-  const merged = [...byId.values()];
-  if (merged.length) return merged;
-  return PUMP_FALLBACK.map((s) => seedQuote(s));
-}
-
-/** Keep a live price on Pump.fun coins we already hold, even after they leave the hot board. */
-export async function refreshHeldPumps(heldIds: string[]): Promise<Quote[]> {
-  const mints = heldIds.filter((id) => id.startsWith("pump:")).map((id) => id.slice(5));
-  if (!mints.length) return [];
-  const out: Quote[] = [];
-  const seen = new Set<string>();
-
-  for (let i = 0; i < mints.length; i += 20) {
-    const batch = mints.slice(i, i + 20);
+export async function refreshHeldPoly(heldIds: string[]): Promise<Quote[]> {
+  const rounds = await fetchUpDownRounds().catch(() => [] as Quote[]);
+  const wanted = new Set(heldIds);
+  const fromRounds = rounds.filter((q) => wanted.has(q.id));
+  const leftover = heldIds.filter((id) => !fromRounds.some((q) => q.id === id));
+  if (!leftover.length) return fromRounds;
+  const out = [...fromRounds];
+  for (const id of leftover) {
+    const { marketId } = parsePolyId(id);
+    if (!/^\d+$/.test(marketId)) continue;
     try {
-      const json = (await fetchJson(
-        `https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`,
-        8000,
-      )) as { pairs?: DexPair[] };
-      for (const p of json.pairs || []) {
-        const mint = (p.baseToken?.address || "").trim();
-        if (!mint || seen.has(mint)) continue;
-        const price = Number(p.priceUsd);
-        if (!price || !Number.isFinite(price)) continue;
-        seen.add(mint);
-        const sym = (p.baseToken?.symbol || "MEME").toUpperCase().slice(0, 10);
-        out.push({
-          id: `pump:${mint}`,
-          symbol: sym,
-          name: p.baseToken?.name || sym,
-          kind: "pump",
-          price,
-          changePct: Number(p.priceChange?.m5 ?? p.priceChange?.h1 ?? 0),
-          volume: Number(p.volume?.h24 ?? 0),
-          spark: [price],
-          live: true,
-        });
-      }
-    } catch {
-      /* next batch */
-    }
-  }
-
-  for (const mint of mints) {
-    if (seen.has(mint)) continue;
-    try {
-      const json = (await fetchJson(
-        `https://frontend-api-v3.pump.fun/coins/${mint}`,
-        6000,
-        PUMP_HEADERS,
-      )) as PumpCoin;
-      const q = coinToQuote(json, 200, 0);
-      if (q) {
-        seen.add(mint);
-        out.push(q);
-      }
+      const json = await fetchJson(
+        `https://gamma-api.polymarket.com/markets?id=${encodeURIComponent(marketId)}`,
+        7000,
+      );
+      const row = Array.isArray(json) ? (json as GammaMarket[])[0] : (json as GammaMarket);
+      const q = row ? marketToQuote(row, true) : null;
+      if (q) out.push({ ...q, id });
     } catch {
       /* leave last known quote */
     }
@@ -470,7 +560,7 @@ async function cryptoBoard(): Promise<Quote[]> {
 
 function jitter(quotes: Quote[]): Quote[] {
   return quotes.map((q) => {
-    const vol = q.kind === "pump" ? 0.035 : q.kind === "crypto" ? 0.004 : 0.0015;
+    const vol = q.kind === "poly" ? 0.012 : q.kind === "crypto" ? 0.004 : q.kind === "pump" ? 0.035 : 0.0015;
     const shock = (Math.random() - 0.5) * 2 * vol;
     const price = Math.max(q.price * (1 + shock), 1e-12);
     return { ...q, price, changePct: q.changePct + shock * 25, live: false };
@@ -482,17 +572,18 @@ export async function fetchMarketSnapshot(): Promise<{
   live: boolean;
   at: number;
 }> {
-  const [core, board] = await Promise.all([yahooQuotes(), cryptoBoard()]);
+  const [core, board, poly] = await Promise.all([
+    yahooQuotes(),
+    cryptoBoard(),
+    polyBoard().catch(() => POLY_FALLBACK.map((s) => seedQuote(s))),
+  ]);
   const byId = new Map(core.map((q) => [q.id, q]));
   for (const q of board) {
     const prev = byId.get(q.id);
     if (prev?.kind === "stock") continue;
     byId.set(q.id, q);
   }
-  const merged = [...byId.values()];
-  const sol = merged.find((q) => q.id === "SOL")?.price ?? 200;
-  const pump = await pumpQuotes(sol).catch(() => PUMP_FALLBACK.map((s) => seedQuote(s)));
-  const quotes = [...merged, ...pump];
+  const quotes = [...byId.values(), ...poly];
   const live = quotes.some((q) => q.live);
   return { quotes, live, at: Date.now() };
 }

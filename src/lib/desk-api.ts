@@ -37,7 +37,7 @@ export const addBot = createServerFn({ method: "POST" })
       symbol: string;
       strategy: StrategyId;
       sizeUsd: number;
-      scope?: "one" | "stock" | "crypto" | "pump" | "all";
+      scope?: "one" | "stock" | "crypto" | "poly" | "all";
       maxNames?: number;
     }) => input,
   )

@@ -16,7 +16,7 @@ function stdev(xs: number[]): number {
 export function buildReport(state: DeskState): DeskReport {
   const views = walletViews(state);
   const core = views.find((w) => w.id === "core")!;
-  const pump = views.find((w) => w.id === "pump")!;
+  const pump = views.find((w) => w.id === "poly")!;
   const scores = [...state.bots].map((bot) => {
     const fills = state.fills.filter((f) => f.botId === bot.id || f.botName === bot.name);
     const sells = fills.filter((f) => f.side === "sell");
@@ -57,15 +57,15 @@ export function buildReport(state: DeskState): DeskReport {
   lines.push(`CORA DESK REPORT  ${when} ET`);
   lines.push("Paper money. Paste this into the Cora chat if you want Grok to tweak the bots.");
   lines.push("");
-  lines.push("WALLETS (Pump.fun cannot spend stocks/crypto cash)");
+  lines.push("WALLETS (Polymarket cannot spend stocks/crypto cash)");
   lines.push(
     `  Stocks + crypto: cash ${money(core.cash)}  value ${money(core.equity)}  P/L ${money(core.netPnl)}  today ${money(core.dayPnl)}  fees ${money(core.feesPaid)}`,
   );
   lines.push(
-    `  Pump.fun:        cash ${money(pump.cash)}  value ${money(pump.equity)}  P/L ${money(pump.netPnl)}  today ${money(pump.dayPnl)}  fees ${money(pump.feesPaid)}`,
+    `  Polymarket:      cash ${money(pump.cash)}  value ${money(pump.equity)}  P/L ${money(pump.netPnl)}  today ${money(pump.dayPnl)}  fees ${money(pump.feesPaid)}`,
   );
   if (core.halted) lines.push(`  CORE PAUSED — ${core.haltReason}`);
-  if (pump.halted) lines.push(`  PUMP PAUSED — ${pump.haltReason}`);
+  if (pump.halted) lines.push(`  POLY PAUSED — ${pump.haltReason}`);
   lines.push("");
   lines.push("BOTS (worst to best by cashed-in P/L)");
   const active = scores.filter((s) => s.bot.enabled || s.trades > 0);
@@ -202,13 +202,13 @@ export function buildReport(state: DeskState): DeskReport {
     }
   }
   if (pump.netPnl < -pump.startingCash * 0.15) {
-    hints.push("  Pump.fun wallet is the weak book. Leave it small. Do not move core cash into it.");
+    hints.push("  Polymarket wallet is the weak book. Leave it small. Do not move core cash into it.");
   }
   if (core.netPnl > 0 && pump.netPnl < 0) {
-    hints.push("  Isolation is working: Pump.fun losses are not eating stocks/crypto gains.");
+    hints.push("  Isolation is working: Polymarket losses are not eating stocks/crypto gains.");
   }
   if (core.netPnl < 0 && pump.netPnl > 0) {
-    hints.push("  Core is the weak book. Pump.fun is not the problem right now.");
+    hints.push("  Core is the weak book. Polymarket is not the problem right now.");
   }
   const on = state.bots.filter((b) => b.enabled).length;
   if (on >= 6) {

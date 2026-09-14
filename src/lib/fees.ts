@@ -10,6 +10,7 @@ export type FeeBreak = {
 
 function gasFor(symbol: string, kind: MarketKind): number {
   if (kind === "stock") return 0;
+  if (kind === "poly") return 0.02;
   if (kind === "pump") return 0.12;
   const s = symbol.replace(/-USD$/, "").toUpperCase();
   if (s === "BTC") return 2.4;
@@ -49,6 +50,18 @@ export function calcFees(
       note: "0.10% taker + network fee",
     };
   }
+  if (kind === "poly") {
+    const p = Math.min(0.99, Math.max(0.01, notional > 0 && qty > 0 ? notional / qty : 0.5));
+    const venue = notional * 0.015 * (4 * p * (1 - p));
+    const gas = gasFor(symbol, kind);
+    return {
+      venue,
+      regulatory: 0,
+      gas,
+      total: venue + gas,
+      note: "Polymarket taker (peaks near 50¢) + Polygon gas",
+    };
+  }
   const venue = notional * 0.01;
   const gas = gasFor(symbol, kind);
   return {
@@ -56,7 +69,7 @@ export function calcFees(
     regulatory: 0,
     gas,
     total: venue + gas,
-    note: "Pump.fun 1% + Solana gas",
+    note: "Retired Pump.fun 1% + Solana gas",
   };
 }
 
@@ -73,6 +86,7 @@ export function roundTripFee(
 
 export function minTicketUsd(kind: MarketKind, symbol: string): number {
   if (kind === "stock") return 8;
+  if (kind === "poly") return 12;
   if (kind === "pump") return 8;
   const s = symbol.replace(/-USD$/, "").toUpperCase();
   if (s === "BTC") return 50;
@@ -82,6 +96,6 @@ export function minTicketUsd(kind: MarketKind, symbol: string): number {
 
 export function feeWouldEat(kind: MarketKind, symbol: string, notional: number): boolean {
   if (notional <= 0) return true;
-  const cap = kind === "pump" ? 0.08 : 0.025;
+  const cap = kind === "pump" ? 0.08 : kind === "poly" ? 0.04 : 0.025;
   return roundTripFee(kind, symbol, notional) > notional * cap;
 }
