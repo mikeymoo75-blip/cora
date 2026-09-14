@@ -847,6 +847,22 @@ function HomePane({
       </section>
 
       <section>
+        <div className="mb-3 flex items-end justify-between">
+          <h2 className="font-display text-2xl font-semibold">Latest fills</h2>
+          <p className="text-xs text-muted">Full tape is on Log</p>
+        </div>
+        {desk.fills.length === 0 ? (
+          <p className="text-sm text-muted">No trades yet today.</p>
+        ) : (
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {desk.fills.slice(0, 10).map((f) => (
+              <FillRow key={f.id} fill={f} symbol={desk.quotes[f.symbol]?.symbol ?? f.symbol} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
         <h2 className="font-display text-2xl font-semibold">This test</h2>
         <p className="mb-3 text-sm text-muted">
           Running {durationFmt(Date.now() - (desk.runStartedAt || Date.now()))}
@@ -882,22 +898,6 @@ function HomePane({
                 <p className="text-sm font-semibold">{b.name}</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">{b.lastReason || "Waiting for a signal."}</p>
               </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-end justify-between">
-          <h2 className="font-display text-2xl font-semibold">Latest fills</h2>
-          <p className="text-xs text-muted">Full tape is on Log</p>
-        </div>
-        {desk.fills.length === 0 ? (
-          <p className="text-sm text-muted">No trades yet today.</p>
-        ) : (
-          <ul className="space-y-2">
-            {desk.fills.slice(0, 6).map((f) => (
-              <FillRow key={f.id} fill={f} symbol={desk.quotes[f.symbol]?.symbol ?? f.symbol} />
             ))}
           </ul>
         )}
