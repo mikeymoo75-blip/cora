@@ -1,27 +1,46 @@
-import { walletViews, walletIdFor } from "./engine";
+import { sqnLabel, walletViews, walletIdFor } from "./engine";
 import { money, pct, signedMoney } from "./format";
 import type { DeskReport, DeskState } from "./types";
 import { STRATEGY_COPY } from "./universe";
+
+function mean(xs: number[]): number {
+  if (!xs.length) return 0;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+function stdev(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return Math.sqrt(mean(xs.map((x) => (x - m) ** 2)));
+}
 
 export function buildReport(state: DeskState): DeskReport {
   const views = walletViews(state);
   const core = views.find((w) => w.id === "core")!;
   const pump = views.find((w) => w.id === "pump")!;
-  const scores = [...(state as DeskState & { scores?: { name: string }[] }).bots].map((bot) => {
+  const scores = [...state.bots].map((bot) => {
     const fills = state.fills.filter((f) => f.botId === bot.id || f.botName === bot.name);
     const sells = fills.filter((f) => f.side === "sell");
-    const wins = sells.filter((f) => f.realizedPnl > 0).length;
+    const pnls = sells.map((f) => f.realizedPnl || 0);
+    const wins = sells.filter((f) => f.realizedPnl > 0);
+    const losses = pnls.filter((p) => p < 0);
     const realized = fills.reduce((n, f) => n + (f.realizedPnl || 0), 0);
     const fees = fills.reduce((n, f) => n + f.fee, 0);
+    const sd = stdev(pnls);
+    const sqn = pnls.length > 1 && sd > 0 ? (Math.sqrt(pnls.length) * mean(pnls)) / sd : 0;
+    const avgWin = wins.length ? mean(wins.map((f) => f.realizedPnl || 0)) : 0;
+    const avgLoss = losses.length ? mean(losses) : 0;
     return {
       bot,
       trades: fills.length,
       sells: sells.length,
-      wins,
-      winRate: sells.length ? (wins / sells.length) * 100 : 0,
+      wins: wins.length,
+      winRate: sells.length ? (wins.length / sells.length) * 100 : 0,
       realized,
       fees,
       net: realized,
+      sqn,
+      avgWin,
+      avgLoss,
     };
   });
   scores.sort((a, b) => a.net - b.net);
@@ -54,6 +73,11 @@ export function buildReport(state: DeskState): DeskReport {
       `  ${s.bot.enabled ? "ON " : "off"} ${s.bot.name}  ${STRATEGY_COPY[s.bot.strategy]?.label || s.bot.strategy}  ${s.trades} trades  net ${money(s.net)}  fees ${money(s.fees)}${wr}`,
     );
     if (s.bot.lastReason) lines.push(`      ${s.bot.lastReason}`);
+    if (s.sells >= 5) {
+      lines.push(
+        `      SQN ${s.sqn.toFixed(2)} (${sqnLabel(s.sqn, s.sells)}) · avg win ${money(s.avgWin)} · avg loss ${money(s.avgLoss)}`,
+      );
+    }
   }
   lines.push("");
   lines.push("OPEN POSITIONS");
@@ -97,8 +121,10 @@ export function buildReport(state: DeskState): DeskReport {
         `  ${s.bot.name} is down ${money(s.net)} after ${s.sells} sells (win ${pct(s.winRate, 0)}). Consider Off, or a smaller ticket.`,
       );
     }
-    if (s.fees > 0 && s.net < 0 && Math.abs(s.net) < s.fees * 1.2 && s.trades >= 6) {
-      hints.push(`  ${s.bot.name} is mostly losing to fees (${money(s.fees)}). Trade less often or bigger only on clean signals.`);
+    if (s.sells >= 8 && s.sqn < 1) {
+      hints.push(
+        `  ${s.bot.name} SQN ${s.sqn.toFixed(2)} is noise (Van Tharp). Wins do not pay for losses. Turn it Off.`,
+      );
     }
   }
   if (pump.netPnl < -pump.startingCash * 0.15) {

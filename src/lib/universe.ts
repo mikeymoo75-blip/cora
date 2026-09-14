@@ -69,9 +69,9 @@ export function seedQuote(s: Seed): Quote {
 }
 
 export function slipBps(kind: MarketKind): number {
-  if (kind === "stock") return 2;
-  if (kind === "crypto") return 6;
-  return 40;
+  if (kind === "stock") return 5;
+  if (kind === "crypto") return 12;
+  return 80;
 }
 
 export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }> = {

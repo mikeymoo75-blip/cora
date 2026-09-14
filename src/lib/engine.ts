@@ -151,6 +151,18 @@ function stdev(xs: number[]): number {
   return Math.sqrt(mean(xs.map((x) => (x - m) ** 2)));
 }
 
+export function sqnLabel(sqn: number, sells: number): string {
+  if (sells < 5) return "too few trades";
+  if (sqn < 0) return "broken";
+  if (sqn < 1) return "noise";
+  if (sqn < 1.6) return "poor";
+  if (sqn < 2) return "below average";
+  if (sqn < 2.5) return "average";
+  if (sqn < 3) return "good";
+  if (sqn < 5) return "excellent";
+  return "superb";
+}
+
 export function deskStats(state: DeskState): DeskStats {
   const realizedPnl = state.fills.reduce((s, f) => s + (f.realizedPnl || 0), 0);
   const feesPaid = state.fills.reduce((s, f) => s + f.fee, 0);
@@ -596,6 +608,19 @@ export function technicalExplain(
 export function botScores(state: DeskState): BotScore[] {
   return state.bots.map((bot) => {
     const fills = state.fills.filter((f) => f.botId === bot.id || f.botName === bot.name);
+    const sells = fills.filter((f) => f.side === "sell");
+    const pnls = sells.map((f) => f.realizedPnl || 0);
+    const wins = pnls.filter((p) => p > 0);
+    const losses = pnls.filter((p) => p < 0);
+    const avgWin = wins.length ? mean(wins) : 0;
+    const avgLoss = losses.length ? mean(losses) : 0;
+    const sd = stdev(pnls);
+    const sqn = pnls.length > 1 && sd > 0 ? Math.sqrt(pnls.length) * mean(pnls) / sd : 0;
+    let loseStreak = 0;
+    for (const p of pnls) {
+      if (p < 0) loseStreak += 1;
+      else break;
+    }
     const realizedPnl = fills.reduce((s, f) => s + (f.realizedPnl || 0), 0);
     const fees = fills.reduce((s, f) => s + f.fee, 0);
     let unrealizedPnl = 0;
@@ -614,6 +639,12 @@ export function botScores(state: DeskState): BotScore[] {
       netPnl: realizedPnl + unrealizedPnl,
       lastReason: bot.lastReason || "",
       enabled: bot.enabled,
+      sqn,
+      avgWin,
+      avgLoss,
+      payoff: avgLoss < 0 ? avgWin / Math.abs(avgLoss) : avgWin > 0 ? 99 : 0,
+      loseStreak,
+      sells: sells.length,
     };
   });
 }
@@ -991,7 +1022,7 @@ export function tickBots(state: DeskState): DeskState {
         continue;
       }
       const eq = walletEquity(next, wid);
-      const size = Math.min(bot.sizeUsd, eq * 0.05, next.wallets[wid].cash);
+      const size = Math.min(bot.sizeUsd, next.wallets[wid].cash * 0.1, eq * 0.05);
       if (size < 5) {
         pass.push(scanNote(bot, quote, "skip", "Not enough cash in this wallet for a ticket."));
         continue;

@@ -146,6 +146,12 @@ export type BotScore = {
   netPnl: number;
   lastReason: string;
   enabled: boolean;
+  sqn: number;
+  avgWin: number;
+  avgLoss: number;
+  payoff: number;
+  loseStreak: number;
+  sells: number;
 };
 
 export type TestRun = {

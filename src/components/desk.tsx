@@ -870,6 +870,15 @@ function BotsPane({
                     {score.unrealizedPnl ? ` · open ${money(score.unrealizedPnl)}` : ""}
                   </p>
                 )}
+                {score && score.sells >= 2 && (
+                  <p className="mt-1 font-mono text-[11px] text-muted">
+                    SQN {score.sqn.toFixed(1)}
+                    {score.avgWin || score.avgLoss
+                      ? ` · avg win ${money(score.avgWin)} / loss ${money(score.avgLoss)}`
+                      : ""}
+                    {score.loseStreak >= 3 ? ` · ${score.loseStreak} losses in a row` : ""}
+                  </p>
+                )}
                 {b.enabled && (
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-muted">
@@ -1005,6 +1014,7 @@ function Scoreboard({ scores }: { scores: BotScore[] }) {
             <th className="px-3 py-2 font-medium">Bot</th>
             <th className="px-3 py-2 font-medium">Trades</th>
             <th className="px-3 py-2 font-medium">Fees</th>
+            <th className="px-3 py-2 font-medium">SQN</th>
             <th className="px-3 py-2 font-medium">Net P/L</th>
           </tr>
         </thead>
@@ -1017,6 +1027,7 @@ function Scoreboard({ scores }: { scores: BotScore[] }) {
               </td>
               <td className="px-3 py-2">{s.trades}</td>
               <td className="px-3 py-2">{money(s.fees)}</td>
+              <td className="px-3 py-2">{s.sells >= 5 ? s.sqn.toFixed(1) : "—"}</td>
               <td className={cn("px-3 py-2", signedClass(s.netPnl))}>
                 {signedMoney(s.netPnl)}
               </td>
