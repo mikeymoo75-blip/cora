@@ -66,6 +66,8 @@ export type Bot = {
   lastReason: string;
   lastSold?: Record<string, number>;
   lastScan?: ScanNote[];
+  /** Skip new buys until this time (Freqtrade StoplossGuard). */
+  lockedUntil?: number;
 };
 
 export type ScanNote = {

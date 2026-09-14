@@ -202,7 +202,7 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
     },
     momentum: {
       buy: "Price is up 5–18% on the day, still ticking higher, and liquid enough that fees will not eat the ticket.",
-      sell: "Hit the 10% stop, took about +10%, or sat 3 hours.",
+      sell: "Hard −10% stop, trailing stop after +4%, or the ROI table (10% now, 5% after 40 min, flat after 3 hours).",
     },
     dca: {
       buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
@@ -210,7 +210,7 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
     },
     sniper: {
       buy: "Pump.fun sniper: Dex-priced, liquid, 2 minutes of tape, not parabolic. Holds 2 minutes so a fake print cannot dump you.",
-      sell: "Pump.fun sniper exit: real dump after 2 minutes, −30% rug, fade off the high, 12 minutes, or a dead feed.",
+      sell: "Pump.fun sniper exit: ROI table, trailing stop after +6%, hard −8%, 12 minutes, or a dead feed.",
     },
     scalp: {
       buy: "Pump.fun scalp: a short pop. This bot wants a quick hit, not a hold.",
@@ -344,6 +344,39 @@ function ticksFalling(spark: number[], n: number): boolean {
   return true;
 }
 
+type RoiStep = { afterMin: number; pct: number };
+
+const PUMP_ROI_SNIPER: RoiStep[] = [
+  { afterMin: 0, pct: 18 },
+  { afterMin: 4, pct: 8 },
+  { afterMin: 8, pct: 3 },
+  { afterMin: 12, pct: 0 },
+];
+const PUMP_ROI_SCALP: RoiStep[] = [
+  { afterMin: 0, pct: 10 },
+  { afterMin: 3, pct: 4 },
+  { afterMin: 8, pct: 0 },
+];
+const CRYPTO_ROI: RoiStep[] = [
+  { afterMin: 0, pct: 10 },
+  { afterMin: 40, pct: 5 },
+  { afterMin: 180, pct: 0 },
+];
+
+function roiStep(heldMs: number, table: RoiStep[]): RoiStep {
+  const min = heldMs / 60_000;
+  let step = table[0]!;
+  for (const row of table) {
+    if (min >= row.afterMin) step = row;
+  }
+  return step;
+}
+
+function roiHit(heldMs: number, fromEntry: number, table: RoiStep[]): RoiStep | null {
+  const step = roiStep(heldMs, table);
+  return fromEntry >= step.pct ? step : null;
+}
+
 /** Pump.fun is not a stock. No dip-buying, tight trail, fast take-profit. */
 export function pumpExplain(
   quote: Quote,
@@ -377,20 +410,30 @@ export function pumpExplain(
     if (heldMs >= 60_000 && prev > 0 && last <= prev * 0.85) {
       return { action: "sell", why: "Gapped down more than 15% on one tick." };
     }
-    if (style === "scalp") {
-      if (fromPeak <= -3.5) return { action: "sell", why: `Faded ${Math.abs(fromPeak).toFixed(1)}% off the peak.` };
-      if (fromEntry <= -6) return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
-      if (fromEntry >= 10) return { action: "sell", why: `Take profit — up ${fromEntry.toFixed(1)}%.` };
-      if (ticksFalling(spark, 2) && fromEntry < 2) return { action: "sell", why: "Two down ticks in a row, no cushion." };
-    } else {
-      if (fromPeak <= -4) return { action: "sell", why: `Faded ${Math.abs(fromPeak).toFixed(1)}% off the peak.` };
-      if (fromEntry <= -6) return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
-      if (fromEntry >= 18) return { action: "sell", why: `Take profit — up ${fromEntry.toFixed(1)}%.` };
-      if (ticksFalling(spark, 3) && fromEntry < 3) return { action: "sell", why: "Three down ticks, no cushion." };
+    const table = style === "scalp" ? PUMP_ROI_SCALP : PUMP_ROI_SNIPER;
+    const hit = roiHit(heldMs, fromEntry, table);
+    if (hit) {
+      return {
+        action: "sell",
+        why: `ROI table: up ${fromEntry.toFixed(1)}% after ${Math.round(heldMs / 60000)} min (needed ${hit.pct}%).`,
+      };
     }
+    const offset = style === "scalp" ? 4 : 6;
+    const trail = style === "scalp" ? 3 : 4;
+    const hard = style === "scalp" ? -6 : -8;
+    if (fromEntry <= hard) {
+      return { action: "sell", why: `Hard stop — down ${Math.abs(fromEntry).toFixed(1)}% from entry.` };
+    }
+    if (fromEntry >= offset && fromPeak <= -trail) {
+      return {
+        action: "sell",
+        why: `Trailing stop: locked after +${offset}%, then faded ${Math.abs(fromPeak).toFixed(1)}% off the peak.`,
+      };
+    }
+    const need = roiStep(heldMs, table);
     return {
       action: "hold",
-      why: `Watching. ${fromEntry >= 0 ? "Up" : "Down"} ${Math.abs(fromEntry).toFixed(1)}% from entry, ${fromPeak.toFixed(1)}% off peak.`,
+      why: `Watching. ${fromEntry >= 0 ? "Up" : "Down"} ${Math.abs(fromEntry).toFixed(1)}% from entry. Trail starts at +${offset}%. ROI now ${need.pct}% after ${need.afterMin} min.`,
     };
   }
 
@@ -504,7 +547,12 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
       if (!pos) return "hold";
       if (fromEntry <= -10) return "sell";
       if (heldMs < minHold) return "hold";
-      if (fromEntry >= 10) return "sell";
+      {
+        const hit = roiHit(heldMs, fromEntry, CRYPTO_ROI);
+        if (hit) return "sell";
+        const fromPeak = pos.peak > 0 ? ((last - pos.peak) / pos.peak) * 100 : 0;
+        if (fromEntry >= 4 && fromPeak <= -3) return "sell";
+      }
       if (heldMs > 3 * 60 * 60 * 1000 && fromEntry > 1) return "sell";
       return "hold";
     case "dca":
@@ -667,6 +715,18 @@ export function tickBots(state: DeskState): DeskState {
 
   for (const bot of bots) {
     if (!bot.enabled) continue;
+
+    if (bot.strategy !== "copy") {
+      const since = Date.now() - 20 * 60 * 1000;
+      const losses = next.fills.filter(
+        (f) => f.botId === bot.id && f.side === "sell" && f.ts >= since && (f.realizedPnl || 0) < -0.15,
+      );
+      if (!bot.lockedUntil || bot.lockedUntil < Date.now()) {
+        if (losses.length >= 3) {
+          bot.lockedUntil = Date.now() + 30 * 60 * 1000;
+        }
+      }
+    }
 
     if (bot.strategy === "copy") {
       const pendingAll = copyEvents.filter((e) => !e.consumed && e.leaderId === bot.leaderId);
@@ -843,6 +903,12 @@ export function tickBots(state: DeskState): DeskState {
     }
     for (const quote of ranked.slice(0, 40)) {
       if (next.positions[quote.id]) continue;
+      if (bot.lockedUntil && bot.lockedUntil > Date.now()) {
+        const left = Math.max(1, Math.round((bot.lockedUntil - Date.now()) / 60000));
+        pass.push(scanNote(bot, quote, "skip", `Stoploss guard — no new buys for ${left} min after a losing streak.`));
+        bot.lastReason = `Stoploss guard: paused ${left} min after 3 losing sells. Still watching open bags.`;
+        break;
+      }
       if (held >= maxNames) {
         pass.push(scanNote(bot, quote, "skip", `Already holding ${held}/${maxNames} names.`));
         continue;

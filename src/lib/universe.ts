@@ -85,7 +85,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   momentum: {
     label: "Ride the move",
-    blurb: "Buys liquid names up 5–18% on the day. Holds 20 minutes. 10% stop, +10% take profit. Live prices only.",
+    blurb: "Buys liquid names up 5–18% on the day. Trailing stop after +4%. ROI: 10% now, 5% after 40 min, time stop at 3 hours.",
   },
   dca: {
     label: "Dip buyer",
@@ -93,7 +93,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Pump.fun only. Buys the Dex price, not the bonding-curve print. One name, 4 minutes between trades, 2-minute min hold so a fake print cannot dump you.",
+    blurb: "Pump.fun only. Dex price. One name. 2-minute min hold. Trailing stop only after +6% (Freqtrade-style). ROI table instead of dumping on the first dip.",
   },
   scalp: {
     label: "Pump scalp",
