@@ -85,7 +85,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   momentum: {
     label: "Ride the move",
-    blurb: "Buys liquid names up 3–18% on the day. Holds 20 minutes. 6% stop, +8% take profit. Skips thin junk and BTC/ETH at this ticket size.",
+    blurb: "Buys liquid names up 5–18% on the day. Holds 20 minutes. 10% stop, +10% take profit. Live prices only.",
   },
   dca: {
     label: "Dip buyer",
@@ -93,7 +93,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Pump.fun only. Needs 2 minutes of tape, skips parabolic rips. Checks every open bag every 10s. Sells on dump, fade, 12 minutes, or a dead price. Never averages down.",
+    blurb: "Pump.fun only. Buys the Dex price, not the bonding-curve print. One name, 4 minutes between trades, 2-minute min hold so a fake print cannot dump you.",
   },
   scalp: {
     label: "Pump scalp",

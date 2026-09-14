@@ -200,16 +200,16 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The dip either bounced enough to cover fees, hit a 5% stop, or sat long enough to give up.",
     },
     momentum: {
-      buy: "Price is up 3–18% on the day, still ticking higher, and liquid enough that fees will not eat the ticket.",
-      sell: "Hit the 6% stop, took about +8%, or sat 3 hours. No more fade-scalping.",
+      buy: "Price is up 5–18% on the day, still ticking higher, and liquid enough that fees will not eat the ticket.",
+      sell: "Hit the 10% stop, took about +10%, or sat 3 hours.",
     },
     dca: {
       buy: "Price is sitting below its recent average, so the bot is buying a fixed dollar dip.",
       sell: "The position is up about 6% from cost, so the bot is cashing in.",
     },
     sniper: {
-      buy: "Pump.fun sniper: the coin has 2 minutes of tape, is ripping, and is not already parabolic. Tight stop — these can go to zero.",
-      sell: "Pump.fun sniper exit: dumped off the peak, gapped down, hit the hard stop, sat 12 minutes, or the price feed died. No averaging down.",
+      buy: "Pump.fun sniper: Dex-priced, liquid, 2 minutes of tape, not parabolic. Holds 2 minutes so a fake print cannot dump you.",
+      sell: "Pump.fun sniper exit: real dump after 2 minutes, −30% rug, fade off the high, 12 minutes, or a dead feed.",
     },
     scalp: {
       buy: "Pump.fun scalp: a short pop. This bot wants a quick hit, not a hold.",
@@ -359,10 +359,13 @@ export function pumpSignal(
     const fromEntry = pos.avg > 0 ? ((last - pos.avg) / pos.avg) * 100 : 0;
     const stale = quote.seenAt ? Date.now() - quote.seenAt > 90_000 : false;
     const maxHold = style === "scalp" ? 8 * 60 * 1000 : 12 * 60 * 1000;
+    const minHold = 2 * 60 * 1000;
+    const catastrophic = fromEntry <= -30;
+    if (!catastrophic && heldMs < minHold) return "hold";
     if (stale) return "sell";
     if (heldMs >= maxHold) return "sell";
     const prev = spark.length >= 2 ? spark[spark.length - 2]! : last;
-    if (prev > 0 && last <= prev * 0.88) return "sell";
+    if (heldMs >= 60_000 && prev > 0 && last <= prev * 0.85) return "sell";
     if (style === "scalp") {
       if (fromPeak <= -3.5 || fromEntry <= -6 || fromEntry >= 10) return "sell";
       if (ticksFalling(spark, 2) && fromEntry < 2) return "sell";
@@ -374,6 +377,8 @@ export function pumpSignal(
   }
 
   if (spark.length < 8 || last <= 0) return "hold";
+  if (!quote.live) return "hold";
+  if (!quote.volume || quote.volume < 2500) return "hold";
 
   const recent = spark.slice(style === "scalp" ? -4 : -8);
   const recentHigh = Math.max(...recent);
@@ -383,7 +388,6 @@ export function pumpSignal(
   const ret = lookback > 0 ? ((last - lookback) / lookback) * 100 : quote.changePct;
   const alreadyDumping = last < recentHigh * 0.9 || ret < -4;
   const parabolic = ret > 18 || quote.changePct > 40;
-  if (quote.volume > 0 && quote.volume < 800) return "hold";
 
   if (alreadyDumping || !rising || !nearHigh || parabolic) return "hold";
   if (style === "scalp" && ret > 3.5 && ret < 14) return "buy";
@@ -448,13 +452,13 @@ export function technicalSignal(bot: Bot, quote: Quote, pos?: Position): "buy" |
       if (spark.length < 6) return "hold";
       {
         const liquid = quote.kind !== "crypto" || quote.volume >= 8_000_000;
-        const popping = quote.changePct >= 3 && quote.changePct <= 18 && ret8 > 0.15 && liquid;
+        const popping = quote.live && quote.changePct >= 5 && quote.changePct <= 18 && ret8 > 0.15 && liquid;
         if (!pos && popping) return "buy";
       }
       if (!pos) return "hold";
-      if (fromEntry <= -6) return "sell";
+      if (fromEntry <= -10) return "sell";
       if (heldMs < minHold) return "hold";
-      if (fromEntry >= 8) return "sell";
+      if (fromEntry >= 10) return "sell";
       if (heldMs > 3 * 60 * 60 * 1000 && fromEntry > 1) return "sell";
       return "hold";
     case "dca":
@@ -513,7 +517,9 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
     const q = state.quotes[bot.symbol];
     return q ? [q] : [];
   }
-  if (bot.scope === "all") return all;
+  if (bot.scope === "all") return all.filter((q) => q.kind === "stock" || q.live);
+  if (bot.scope === "crypto") return all.filter((q) => q.kind === "crypto" && q.live);
+  if (bot.scope === "pump") return all.filter((q) => q.kind === "pump");
   return all.filter((q) => q.kind === bot.scope);
 }
 
@@ -742,6 +748,10 @@ export function tickBots(state: DeskState): DeskState {
       if (next.wallets[wid].halted) continue;
       const coolUntil = bot.lastSold?.[quote.id] ?? 0;
       if (Date.now() < coolUntil + 30 * 60 * 1000) continue;
+      if (quote.kind === "pump") {
+        const lastPump = next.fills.find((f) => f.botId === bot.id && f.kind === "pump");
+        if (lastPump && Date.now() - lastPump.ts < 4 * 60 * 1000) continue;
+      }
       const sig = pickSignal(bot, quote, undefined);
       if (sig !== "buy") continue;
       const eq = walletEquity(next, wid);
@@ -878,6 +888,14 @@ export function mergeQuotes(
   for (const q of incoming) {
     const old = out[q.id];
     const spark = [...(old?.spark ?? []), q.price].slice(-48);
+    if (q.kind === "pump" && old && old.price > 0) {
+      const jump = Math.abs(q.price - old.price) / old.price;
+      const young = Date.now() - (old.seenAt || 0) < 45_000;
+      if (jump > 0.25 && young) {
+        out[q.id] = { ...old, seenAt: Date.now() };
+        continue;
+      }
+    }
     const base = spark.length >= 6 ? spark[spark.length - 6]! : spark[0]!;
     const changePct = base > 0 ? ((q.price - base) / base) * 100 : q.changePct;
     out[q.id] = {

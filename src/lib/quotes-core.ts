@@ -226,7 +226,7 @@ async function dexPumpBoard(): Promise<Quote[]> {
         spark: [price],
         live: true,
       });
-      if (out.length >= 24) break;
+      if (out.length >= 40) break;
     }
     return out;
   } catch {
@@ -236,10 +236,23 @@ async function dexPumpBoard(): Promise<Quote[]> {
 
 async function pumpQuotes(solUsd: number): Promise<Quote[]> {
   const primary = await pumpFunBoard(solUsd);
-  if (primary.length >= 8) return primary;
   const dex = await dexPumpBoard();
   const byId = new Map(primary.map((q) => [q.id, q]));
-  for (const q of dex) if (!byId.has(q.id)) byId.set(q.id, q);
+  for (const q of dex) {
+    const old = byId.get(q.id);
+    if (old) {
+      byId.set(q.id, {
+        ...old,
+        price: q.price,
+        volume: q.volume || old.volume,
+        changePct: q.changePct || old.changePct,
+        spark: [q.price],
+        live: true,
+      });
+    } else {
+      byId.set(q.id, q);
+    }
+  }
   const merged = [...byId.values()];
   if (merged.length) return merged;
   return PUMP_FALLBACK.map((s) => seedQuote(s));
@@ -361,7 +374,7 @@ async function binanceCryptoBoard(): Promise<Quote[]> {
     });
   }
   scored.sort((a, b) => b.vol - a.vol);
-  return scored.slice(0, 80).map((x) => x.q);
+  return scored.slice(0, 40).map((x) => x.q);
 }
 
 type PaprikaTicker = {
