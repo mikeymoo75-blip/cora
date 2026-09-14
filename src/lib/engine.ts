@@ -664,6 +664,19 @@ function scanNote(
   };
 }
 
+function botBookPnl(state: DeskState, botId: string): number {
+  const realized = state.fills
+    .filter((f) => f.botId === botId)
+    .reduce((n, f) => n + (f.realizedPnl || 0), 0);
+  let open = 0;
+  for (const sym of ownedSymbols(state, botId)) {
+    const pos = state.positions[sym];
+    const q = state.quotes[sym];
+    if (pos && q) open += (q.price - pos.avg) * pos.qty;
+  }
+  return realized + open;
+}
+
 export function tickBots(state: DeskState): DeskState {
   const now = Date.now();
   const keptLocks: Record<string, number> = {};
@@ -724,6 +737,15 @@ export function tickBots(state: DeskState): DeskState {
       if (!bot.lockedUntil || bot.lockedUntil < Date.now()) {
         if (losses.length >= 3) {
           bot.lockedUntil = Date.now() + 30 * 60 * 1000;
+          bot.lastReason = "Stoploss guard: 3 losing sells in 20 minutes. No new buys for 30 minutes.";
+        } else {
+          const kind = bot.scope === "pump" ? "pump" : "core";
+          const bank = next.wallets[kind]?.startingCash || (kind === "pump" ? 200 : 800);
+          const pnl = botBookPnl(next, bot.id);
+          if (bank > 0 && pnl <= -0.1 * bank) {
+            bot.lockedUntil = Date.now() + 2 * 60 * 60 * 1000;
+            bot.lastReason = `Kill switch: this bot is down $${Math.abs(pnl).toFixed(2)} (10% of its wallet). No new buys for 2 hours. Open bags still sell.`;
+          }
         }
       }
     }
@@ -901,12 +923,39 @@ export function tickBots(state: DeskState): DeskState {
       const lastPump = next.fills.find((f) => f.botId === bot.id && f.kind === "pump");
       pumpCool = !!(lastPump && Date.now() - lastPump.ts < 4 * 60 * 1000);
     }
+    const lastFill = next.fills.find((f) => f.botId === bot.id);
+    const fillDelayMs = bot.scope === "pump" ? 0 : 90_000;
+    const fillDelay =
+      fillDelayMs > 0 && lastFill && Date.now() - lastFill.ts < fillDelayMs
+        ? Math.max(1, Math.round((fillDelayMs - (Date.now() - lastFill.ts)) / 1000))
+        : 0;
     for (const quote of ranked.slice(0, 40)) {
       if (next.positions[quote.id]) continue;
       if (bot.lockedUntil && bot.lockedUntil > Date.now()) {
         const left = Math.max(1, Math.round((bot.lockedUntil - Date.now()) / 60000));
-        pass.push(scanNote(bot, quote, "skip", `Stoploss guard — no new buys for ${left} min after a losing streak.`));
-        bot.lastReason = `Stoploss guard: paused ${left} min after 3 losing sells. Still watching open bags.`;
+        const why = /Kill switch/i.test(bot.lastReason || "")
+          ? `Kill switch — no new buys for ${left} min. Open bags still sell.`
+          : `Stoploss guard — no new buys for ${left} min after a losing streak.`;
+        pass.push(scanNote(bot, quote, "skip", why));
+        bot.lastReason = why;
+        break;
+      }
+      if (fillDelay) {
+        pass.push(scanNote(bot, quote, "skip", `Filled-order delay: wait ${fillDelay}s after the last fill.`));
+        break;
+      }
+      const widEarly = walletIdFor(quote.kind);
+      const eqEarly = walletEquity(next, widEarly);
+      const cashEarly = next.wallets[widEarly].cash;
+      if (eqEarly > 0 && cashEarly / eqEarly < 0.4) {
+        pass.push(
+          scanNote(
+            bot,
+            quote,
+            "skip",
+            `Inventory skew: only ${Math.round((cashEarly / eqEarly) * 100)}% cash left in this wallet — wait until bags are sold.`,
+          ),
+        );
         break;
       }
       if (held >= maxNames) {
