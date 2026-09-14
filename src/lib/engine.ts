@@ -221,7 +221,7 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
       sell: "The position is up about 6% from cost, so the bot is cashing in.",
     },
     sniper: {
-      buy: "Pump.fun sniper: Dex-priced, liquid, 2 minutes of tape, not parabolic. Holds 2 minutes so a fake print cannot dump you.",
+      buy: "Pump.fun sniper: new listing or Dex runner, 5–16% rip, not parabolic.",
       sell: "Pump.fun sniper exit: ROI table, trailing stop after +6%, hard −8%, 12 minutes, or a dead feed.",
     },
     scalp: {
@@ -459,16 +459,24 @@ export function pumpExplain(
   if (spark.length < 8 && !liquidEnough) {
     return { action: "hold", why: `Only ${spark.length} price ticks — needs 2 minutes of tape.` };
   }
-  if (!quote.live) return { action: "hold", why: "No live Dex price yet." };
-  if (!quote.volume || quote.volume < 2500) {
-    return { action: "hold", why: `Too thin — volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}.` };
+  if (!quote.live) return { action: "hold", why: "No live price yet." };
+  const thin = !quote.volume || quote.volume < 2500;
+  if (thin && spark.length < 8) {
+    return { action: "hold", why: `New/thin — ${spark.length} ticks, volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}. Waiting for tape.` };
   }
 
   if (spark.length < 8) {
     return {
       action: "buy",
-      why: `Dex-priced and liquid, up ${quote.changePct.toFixed(1)}% — taking it while tape is still filling.`,
+      why: `New-coin runner: Dex/curve live, up ${quote.changePct.toFixed(1)}% while tape is still filling.`,
     };
+  }
+  if (thin) {
+    const look = spark[spark.length - Math.min(spark.length, 6)] ?? last;
+    const rip = look > 0 ? ((last - look) / look) * 100 : 0;
+    if (rip <= 5 || rip >= 16) {
+      return { action: "hold", why: `Too thin — volume ${quote.volume ? `$${Math.round(quote.volume)}` : "unknown"}, spark ${rip.toFixed(1)}%.` };
+    }
   }
 
   const recent = spark.slice(style === "scalp" ? -4 : -8);
@@ -700,10 +708,7 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
     return q ? [q] : [];
   }
   if (bot.scope === "pump") {
-    return all
-      .filter((q) => q.kind === "pump" && q.live && (q.volume || 0) >= 8000)
-      .sort((a, b) => (b.volume || 0) - (a.volume || 0))
-      .slice(0, 40);
+    return all.filter((q) => q.kind === "pump" && q.live);
   }
   if (bot.scope === "crypto") {
     return all.filter((q) => q.kind === "crypto" && q.live && (q.volume || 0) >= 30_000_000);
@@ -720,8 +725,9 @@ function rankForBot(bot: Bot, quotes: Quote[]): Quote[] {
     if (dip) return s - c + Math.min(q.volume || 0, 1_000_000) / 1_000_000;
     if (q.kind === "pump") {
       if (c >= 5 && c <= 16) s += 80 - Math.abs(c - 9);
-      else if (c > 16 && c < 25) s += 8;
+      else if (c > 16 && c < 25) s += 12;
       else if (c < 0) s -= 30;
+      if ((q.spark?.length || 0) < 10) s += 25;
       s += Math.min(q.volume || 0, 80_000) / 8_000;
     } else {
       if (c >= 6 && c <= 12) s += 80 - Math.abs(c - 9);
@@ -938,7 +944,7 @@ export function tickBots(state: DeskState): DeskState {
       bot.lastSignal = "no quote";
       bot.lastReason =
         bot.scope === "pump"
-          ? "No Pump.fun names with $8k+ Dex volume this pass."
+          ? "No live Pump.fun coins this pass."
           : bot.scope === "crypto"
             ? "No crypto names with $30M+ volume this pass."
             : "Nothing to scan yet.";
@@ -1022,7 +1028,7 @@ export function tickBots(state: DeskState): DeskState {
       fillDelayMs > 0 && lastFill && Date.now() - lastFill.ts < fillDelayMs
         ? Math.max(1, Math.round((fillDelayMs - (Date.now() - lastFill.ts)) / 1000))
         : 0;
-    for (const quote of ranked.slice(0, 40)) {
+    for (const quote of ranked.slice(0, 60)) {
       if (next.positions[quote.id]) continue;
       if (fillDelay) {
         pass.push(scanNote(bot, quote, "skip", `Filled-order delay: wait ${fillDelay}s after the last fill.`));

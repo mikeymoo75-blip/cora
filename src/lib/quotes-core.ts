@@ -171,22 +171,33 @@ function coinToQuote(c: PumpCoin, solUsd: number, i: number): Quote | null {
 }
 
 async function pumpFunBoard(solUsd: number): Promise<Quote[]> {
-  const sorts = ["last_trade_timestamp", "market_cap", "created_timestamp"];
+  const jobs: string[] = [
+    "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
+    "https://frontend-api-v3.pump.fun/coins?offset=50&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
+    "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
+    "https://frontend-api-v3.pump.fun/coins?offset=0&limit=24&sort=market_cap&order=DESC&includeNsfw=false",
+    "https://frontend-api-v3.pump.fun/coins/king-of-the-hill",
+  ];
   const byId = new Map<string, Quote>();
-  for (const sort of sorts) {
-    const url = `https://frontend-api-v3.pump.fun/coins?offset=0&limit=24&sort=${sort}&order=DESC&includeNsfw=false`;
-    try {
-      const json = await fetchJson(url, 7000, PUMP_HEADERS);
-      const rows = Array.isArray(json) ? (json as PumpCoin[]) : [];
-      rows.forEach((c, i) => {
-        const q = coinToQuote(c, solUsd, i);
-        if (q && !byId.has(q.id)) byId.set(q.id, q);
-      });
-    } catch {
-      /* try next sort */
-    }
-  }
-  return [...byId.values()].slice(0, 36);
+  await Promise.all(
+    jobs.map(async (url) => {
+      try {
+        const json = await fetchJson(url, 7000, PUMP_HEADERS);
+        const rows = Array.isArray(json)
+          ? (json as PumpCoin[])
+          : json && typeof json === "object"
+            ? [json as PumpCoin]
+            : [];
+        rows.forEach((c, i) => {
+          const q = coinToQuote(c, solUsd, i);
+          if (q && !byId.has(q.id)) byId.set(q.id, q);
+        });
+      } catch {
+        /* next */
+      }
+    }),
+  );
+  return [...byId.values()];
 }
 
 type DexPair = {
@@ -244,23 +255,25 @@ async function dexPumpBoard(): Promise<Quote[]> {
 }
 
 async function pumpQuotes(solUsd: number): Promise<Quote[]> {
-  const dex = await dexPumpBoard();
-  const primary = await pumpFunBoard(solUsd);
-  const byId = new Map(dex.map((q) => [q.id, q]));
-  for (const q of primary) {
+  const [fresh, dex] = await Promise.all([pumpFunBoard(solUsd), dexPumpBoard()]);
+  const byId = new Map<string, Quote>();
+  for (const q of fresh) byId.set(q.id, q);
+  for (const q of dex) {
     const old = byId.get(q.id);
     if (old) {
       byId.set(q.id, {
         ...old,
+        price: q.price || old.price,
         volume: Math.max(old.volume || 0, q.volume || 0),
-        changePct: old.changePct || q.changePct,
+        changePct: q.changePct || old.changePct,
+        live: true,
       });
-    } else if ((q.volume || 0) >= 3000) {
+    } else {
       byId.set(q.id, q);
     }
   }
-  const merged = [...byId.values()].sort((a, b) => (b.volume || 0) - (a.volume || 0));
-  if (merged.length) return merged.slice(0, 80);
+  const merged = [...byId.values()];
+  if (merged.length) return merged;
   return PUMP_FALLBACK.map((s) => seedQuote(s));
 }
 

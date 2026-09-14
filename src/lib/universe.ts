@@ -93,7 +93,7 @@ export const STRATEGY_COPY: Record<StrategyId, { label: string; blurb: string }>
   },
   sniper: {
     label: "Pump sniper",
-    blurb: "Buys a Pump runner (up 5–16% on the last few minutes). Trails after +6%. Sells before the dump — not a dip buyer.",
+    blurb: "Scans new Pump.fun listings and Dex runners. Buys a 5–16% rip, trails after +6%. New coins get 2 minutes of tape first.",
   },
   scalp: {
     label: "Pump scalp",
