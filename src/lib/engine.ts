@@ -373,22 +373,23 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
   return map[strategy][side];
 }
 
-function clamp01(n: number) {
-  return Math.min(0.99, Math.max(0.01, n));
-}
-
-/** Polymarket taker: buy the ask, sell the bid. Resolved markets pay 1¢ or 99¢ from the venue — not Binance. */
+/** Polymarket taker: buy the ask, sell the bid. Resolved bags redeem 0 or 1 — not 1¢/99¢. */
 export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: number): number {
   if (quote.kind === "poly") {
     const end = windowEnd || quote.windowEnd;
     const windowOver = !!(end && Date.now() >= end);
     if (side === "sell") {
-      if (windowOver && quote.price <= 0.04) return 0.01;
-      if (windowOver && quote.price >= 0.96) return 0.99;
-      return clamp01(quote.bid || quote.price);
+      if (windowOver && quote.price <= 0.04) return 0;
+      if (windowOver && quote.price >= 0.96) return 1;
+      const bid = quote.bid || 0;
+      if (!(bid > 0)) return 0;
+      return bid;
     }
-    if (!(quote.ask && quote.ask > 0)) return 0;
-    return clamp01(quote.ask);
+    const ask = quote.ask || 0;
+    if (!(ask > 0)) return 0;
+    const depthUsd = (quote.askSize || 0) * ask;
+    const walk = depthUsd > 0 && depthUsd < 40 ? 0.01 : 0;
+    return Math.min(0.99, ask + walk);
   }
   const slip = slipBps(quote.kind) / 10_000;
   return side === "buy" ? quote.price * (1 + slip) : quote.price * (1 - slip);
@@ -415,9 +416,10 @@ export function applyFill(
   const pos = s0.positions[symbol];
   const expectedPrice = quote.price;
   const px = paperFillPx(quote, side, pos?.windowEnd || quote.windowEnd);
-  if (!(px > 0)) return s0;
-  const slipActual = expectedPrice > 0 ? ((px - expectedPrice) / expectedPrice) * 10_000 : 0;
-  let qty = notional / px;
+  if (!Number.isFinite(px) || px < 0) return s0;
+  if (side === "buy" && !(px > 0)) return s0;
+  const slipActual = expectedPrice > 0 && px > 0 ? ((px - expectedPrice) / expectedPrice) * 10_000 : 0;
+  let qty = px > 0 ? notional / px : 0;
 
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return s0;
@@ -433,11 +435,17 @@ export function applyFill(
     }
   } else {
     if (quote.kind === "poly") {
+      if (!quote.live) return s0;
       if (quote.horizon && !isCurrentRound(quote)) return s0;
       if (quote.windowEnd && Date.now() >= quote.windowEnd) return s0;
-      const depth = (quote.askSize || 0) * (quote.ask || 0);
-      if (depth < 12) return s0;
-      if (notional > depth) qty = depth / px;
+      if (quote.seenAt && Date.now() - quote.seenAt > 12_000) return s0;
+      const ask = quote.ask || 0;
+      const askSize = quote.askSize || 0;
+      if (!(ask > 0) || askSize < 8) return s0;
+      const depth = askSize * ask;
+      if (notional > depth * 0.85) return s0;
+      const width = ask - (quote.bid || 0);
+      if (width > 0.05) return s0;
     }
     const maxNotional = book.cash * 0.98;
     if (notional > maxNotional) qty = Math.min(qty, maxNotional / px);
@@ -445,7 +453,15 @@ export function applyFill(
   }
 
   const gross = qty * px;
-  const fees = calcFees(kind, side, quote.symbol, qty, gross);
+  const resolved =
+    quote.kind === "poly" &&
+    side === "sell" &&
+    !!(pos?.windowEnd || quote.windowEnd) &&
+    Date.now() >= (pos?.windowEnd || quote.windowEnd || 0) &&
+    (quote.price <= 0.04 || quote.price >= 0.96);
+  const fees = resolved
+    ? { venue: 0, regulatory: 0, gas: 0.12, total: 0.12, note: "Redeem 0/1 + Polygon gas" }
+    : calcFees(kind, side, quote.symbol, qty, gross);
 
   if (side === "buy" && book.cash < gross + fees.total) return s0;
 

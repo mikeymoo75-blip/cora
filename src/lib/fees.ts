@@ -10,7 +10,7 @@ export type FeeBreak = {
 
 function gasFor(symbol: string, kind: MarketKind): number {
   if (kind === "stock") return 0;
-  if (kind === "poly") return 0.02;
+  if (kind === "poly") return 0.06;
   if (kind === "pump") return 0.12;
   const s = symbol.replace(/-USD$/, "").toUpperCase();
   if (s === "BTC") return 2.4;
