@@ -1248,14 +1248,24 @@ export function tickBots(state: DeskState): DeskState {
     let held = ownedSymbols(next, bot.id).length;
     if (bot.strategy === "sniper") {
       for (const pair of corridorPairs(Object.values(next.quotes))) {
-        const missing = [pair.a, pair.b].filter((q) => !next.positions[q.id]);
+        const legs = [pair.a, pair.b];
+        const missing = legs.filter((q) => !next.positions[q.id]);
         if (!missing.length) continue;
         if (held + missing.length > maxNames) continue;
         const wid = walletIdFor(pair.a.kind);
         if (next.wallets[wid].halted) break;
+        const askA = pair.a.ask || 0;
+        const askB = pair.b.ask || 0;
+        if (!(askA > 0 && askB > 0) || askA + askB > 0.93) continue;
+        const heldLeg = legs.find((q) => next.positions[q.id]);
+        const shares = heldLeg
+          ? next.positions[heldLeg.id]!.qty
+          : Math.min(20, next.wallets[wid].cash * 0.18) / (askA + askB);
+        if (!(shares > 0)) continue;
+        let bought = 0;
         for (const quote of missing) {
+          const size = shares * (quote.ask || 0);
           const floor = minTicketUsd(quote.kind, quote.symbol);
-          const size = Math.min(bot.sizeUsd, 20, next.wallets[wid].cash * 0.18);
           if (size < floor) {
             pass.push(scanNote(bot, quote, "skip", `Corridor ticket under $${floor} min.`));
             continue;
@@ -1278,8 +1288,10 @@ export function tickBots(state: DeskState): DeskState {
           bot.lastSignal = "buy";
           bot.lastReason = pair.why;
           acted = true;
+          bought += 1;
           held = ownedSymbols(next, bot.id).length;
         }
+        if (bought === 0 && missing.length === 2) continue;
       }
     }
     const ranked = rankForBot(bot, universe);
@@ -1302,6 +1314,17 @@ export function tickBots(state: DeskState): DeskState {
         break;
       }
       const hedging = !!(quote.pairId && next.positions[quote.pairId]);
+      if (hedging && quote.horizon) {
+        pass.push(
+          scanNote(
+            bot,
+            quote,
+            "skip",
+            "No same-round UP+DN hedge. That is two bets, not a $1 lock. Hold the first leg to 0/1.",
+          ),
+        );
+        continue;
+      }
       const widEarly = walletIdFor(quote.kind);
       const eqEarly = walletEquity(next, widEarly);
       const cashEarly = next.wallets[widEarly].cash;

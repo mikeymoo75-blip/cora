@@ -241,13 +241,13 @@ export function updownExplain(
   const mid = last;
   const blended = 0.55 * thisFair + 0.45 * mid;
   const edge = blended - pay;
-  if (!other && (pay < 0.5 || pay > 0.8)) {
+  if (pay < 0.5 || pay > 0.8) {
     return {
       action: "hold",
       why: `Favorite-side only (ask 50–80¢). Ask ${Math.round(pay * 100)}¢ is ${pay < 0.5 ? "the underdog — book usually wins that fight" : "too locked, fee eats the rest"}.`,
     };
   }
-  if (!other && blended < 0.5) {
+  if (blended < 0.5) {
     return { action: "hold", why: "TWAP fair is against this leg — not fading the book." };
   }
   if (pay < 0.08 || pay > 0.92) {
@@ -260,7 +260,7 @@ export function updownExplain(
   if (quote.ask && last && quote.ask - last > 0.08) {
     return { action: "hold", why: `Ask ${Math.round(quote.ask * 100)}¢ vs mid ${Math.round(last * 100)}¢ — print is stale.` };
   }
-  const minEdge = other ? 0.04 : 0.06;
+  const minEdge = 0.06;
   if (edge < minEdge) {
     return {
       action: "hold",
@@ -274,10 +274,9 @@ export function updownExplain(
     };
   }
   const spotDelta = ((quote.spot - quote.openPx) / quote.openPx) * 100;
-  const hedge = other ? "Hedge: " : "";
   return {
     action: "buy",
-    why: `${hedge}${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: TWAP fair ${Math.round(blended * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
+    why: `${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: TWAP fair ${Math.round(blended * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
   };
 }
 
