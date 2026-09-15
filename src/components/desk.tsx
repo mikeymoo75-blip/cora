@@ -1013,16 +1013,10 @@ function HomePane({
                   )}
                 >
                   {settleWin && (
-                    <span className="bag-winner-banner">
-                      WINNER
-                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
-                    </span>
+                    <span className="bag-winner-banner">WINNER</span>
                   )}
                   {settleLose && (
-                    <span className="bag-loser-banner">
-                      LOSER
-                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
-                    </span>
+                    <span className="bag-loser-banner">LOSER</span>
                   )}
                   <div className="flex items-start justify-between gap-2">
                     <div>
