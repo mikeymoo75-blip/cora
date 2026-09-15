@@ -871,9 +871,9 @@ function HomePane({
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {holdings.map((p) => {
               const q = desk.quotes[p.symbol];
-              const horizon = p.horizon || bagHorizon(p, q);
-              const end = p.windowEnd;
-              const leftSec = end != null ? (end - now) / 1000 : horizon ? wallClockLeft(horizon, now) : null;
+              const horizon = p.horizon || q?.horizon || bagHorizon(p, q);
+              const end = p.windowEnd ?? (p.windowStart && horizon ? p.windowStart + (horizon === "15m" ? 900_000 : 300_000) : undefined);
+              const leftSec = end != null ? (end - now) / 1000 : null;
               const settling = end != null && now >= end;
               const live = q?.price ?? p.avg;
               const resolved = live <= 0.04 || live >= 0.96;
@@ -881,10 +881,16 @@ function HomePane({
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
               const winning = mtm > 0.05 && !settling;
+              const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
+              const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
                 <li
                   key={p.symbol}
-                  className={cn("rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]", winning && "bag-win")}
+                  className={cn(
+                    "rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]",
+                    winning && "bag-win",
+                    fresh && "bag-new",
+                  )}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -900,16 +906,16 @@ function HomePane({
                       {signedMoney(mtm)}
                     </p>
                   </div>
-                  {horizon && (
+                  {showClock && (
                     <p
                       className={cn(
                         "mt-2 font-mono text-3xl font-semibold tabular-nums tracking-tight",
                         settling || (leftSec != null && leftSec < 30) ? "text-down" : "text-fg",
                       )}
                     >
-                      {settling ? "0:00" : clockLeft(leftSec || 0)}
+                      {settling || (leftSec != null && leftSec <= 0) ? "0:00" : clockLeft(Math.max(0, leftSec || 0))}
                       <span className="ml-2 text-sm font-medium text-muted">
-                        {settling ? "last round · waiting 0/1" : "left"}
+                        {settling ? "last round · waiting 0/1" : fresh ? "live · counting" : "left"}
                       </span>
                     </p>
                   )}

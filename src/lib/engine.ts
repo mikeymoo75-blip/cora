@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { corridorPairs, isCurrentRound, updownExplain } from "./updown";
+import { corridorPairs, isCurrentRound, updownExplain, windowBounds } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -413,6 +413,9 @@ export function applyFill(
     cash -= gross + fees.total;
     const prev = positions[symbol];
     const cost = gross + fees.total;
+    const bounds = quote.horizon ? windowBounds(quote.horizon) : null;
+    const windowStart = quote.windowStart || bounds?.start;
+    const windowEnd = quote.windowEnd || bounds?.end;
     if (!prev) {
       positions[symbol] = {
         symbol,
@@ -421,8 +424,8 @@ export function applyFill(
         avg: cost / qty,
         peak: quote.price,
         openedAt: Date.now(),
-        windowStart: quote.windowStart,
-        windowEnd: quote.windowEnd,
+        windowStart,
+        windowEnd,
         horizon: quote.horizon,
         asset: quote.asset,
         leg: quote.leg,
@@ -436,8 +439,8 @@ export function applyFill(
         avg,
         peak: Math.max(prev.peak, quote.price),
         openedAt: prev.openedAt || Date.now(),
-        windowStart: prev.windowStart || quote.windowStart,
-        windowEnd: prev.windowEnd || quote.windowEnd,
+        windowStart: prev.windowStart || windowStart,
+        windowEnd: prev.windowEnd || windowEnd,
         horizon: prev.horizon || quote.horizon,
         asset: prev.asset || quote.asset,
         leg: prev.leg || quote.leg,

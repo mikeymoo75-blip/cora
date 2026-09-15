@@ -163,6 +163,20 @@
   }
 }
 
+.bag-new {
+  animation: bag-new 1.4s ease-in-out infinite;
+  border: 1px solid color-mix(in srgb, var(--color-fg) 22%, transparent);
+}
+@keyframes bag-new {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-fg) 18%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-fg) 0%, transparent);
+  }
+}
+
 .bag-win {
   position: relative;
   overflow: hidden;
