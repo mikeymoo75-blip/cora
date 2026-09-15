@@ -111,6 +111,14 @@ export function ensureWallets(state: DeskState): DeskState {
         },
       };
     }
+    if (wallets.core.startingCash === CORE_START && wallets.poly.startingCash === POLY_START) {
+      if (wallets.core.dayStartEquity >= 700 && wallets.poly.dayStartEquity <= 280) {
+        wallets = {
+          core: { ...wallets.core, dayStartEquity: CORE_START },
+          poly: { ...wallets.poly, dayStartEquity: POLY_START },
+        };
+      }
+    }
     const poly = wallets.poly;
     const holdingPoly = Object.values(positions).some((p) => isEventKind(p.kind));
     if (poly.halted && (poly.cash >= 5 || holdingPoly)) {
