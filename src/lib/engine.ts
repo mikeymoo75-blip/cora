@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { corridorPairs, isCurrentRound, updownExplain, windowBounds } from "./updown";
+import { corridorPairs, isCurrentRound, pairLocks, updownExplain, windowBounds } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -1247,7 +1247,8 @@ export function tickBots(state: DeskState): DeskState {
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
     if (bot.strategy === "sniper") {
-      for (const pair of corridorPairs(Object.values(next.quotes))) {
+      const locks = [...pairLocks(Object.values(next.quotes)), ...corridorPairs(Object.values(next.quotes))];
+      for (const pair of locks) {
         const legs = [pair.a, pair.b];
         const missing = legs.filter((q) => !next.positions[q.id]);
         if (!missing.length) continue;
@@ -1262,6 +1263,11 @@ export function tickBots(state: DeskState): DeskState {
           ? next.positions[heldLeg.id]!.qty
           : Math.min(20, next.wallets[wid].cash * 0.18) / (askA + askB);
         if (!(shares > 0)) continue;
+        const need = missing.reduce((n, q) => n + shares * (q.ask || 0), 0);
+        if (next.wallets[wid].cash < need + 0.5) {
+          pass.push(scanNote(bot, pair.a, "skip", "Not enough cash for both lock legs."));
+          continue;
+        }
         let bought = 0;
         for (const quote of missing) {
           const size = shares * (quote.ask || 0);

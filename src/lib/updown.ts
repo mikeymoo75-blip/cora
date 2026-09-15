@@ -315,3 +315,37 @@ export function corridorPairs(quotes: Quote[]): { a: Quote; b: Quote; cost: numb
   }
   return out.sort((x, y) => x.cost - y.cost);
 }
+
+/**
+ * Same round, same coin: UP ask + DOWN ask < $1.
+ * That is the only guaranteed $1 lock (MrFadiAi DipArb / YES+NO arb).
+ * Equal shares. After taker+gas need cost ≤ 0.90.
+ */
+export function pairLocks(quotes: Quote[]): { a: Quote; b: Quote; cost: number; why: string }[] {
+  const by = new Map<string, Quote>();
+  for (const q of quotes) {
+    if (!q.horizon || !q.asset || !q.leg || !(q.ask && q.ask > 0)) continue;
+    if (!isCurrentRound(q)) continue;
+    by.set(`${q.asset}-${q.horizon}-${q.leg}`, q);
+  }
+  const keys = [...new Set([...by.keys()].map((k) => k.replace(/-up$|-down$/, "")))];
+  const out: { a: Quote; b: Quote; cost: number; why: string }[] = [];
+  for (const key of keys) {
+    const up = by.get(`${key}-up`);
+    const down = by.get(`${key}-down`);
+    if (!up || !down) continue;
+    if (Math.abs((up.windowEnd || 0) - (down.windowEnd || 0)) > 2000) continue;
+    const cost = (up.ask || 0) + (down.ask || 0);
+    if (cost <= 0 || cost > 0.9) continue;
+    if ((up.askSize || 0) < 8 || (down.askSize || 0) < 8) continue;
+    const tau = Math.max(0, ((up.windowEnd || 0) - Date.now()) / 1000);
+    if (tau < 25) continue;
+    out.push({
+      a: up,
+      b: down,
+      cost,
+      why: `Pair lock ${up.asset} ${up.horizon}: UP ${Math.round((up.ask || 0) * 100)}¢ + DN ${Math.round((down.ask || 0) * 100)}¢ = ${Math.round(cost * 100)}¢ vs $1. Equal shares. Same round.`,
+    });
+  }
+  return out.sort((x, y) => x.cost - y.cost);
+}
