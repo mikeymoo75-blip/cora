@@ -75,6 +75,13 @@ export function currentWindows(at = Date.now()): UpDownWindow[] {
   return out;
 }
 
+/** Seconds left in the current 5m/15m unix window — wall clock, not the quote. */
+export function wallClockLeft(horizon: "5m" | "15m" | string, at = Date.now()): number {
+  const span = horizon === "15m" ? 900 : 300;
+  const sec = Math.floor(at / 1000);
+  return span - (sec % span);
+}
+
 /** Last-minute log return + acceleration (change in 1m return). */
 export function momFromCloses(closes: number[]): { mom: number; accel: number } {
   const n = closes.length;

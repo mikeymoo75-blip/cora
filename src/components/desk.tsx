@@ -32,7 +32,7 @@ import type {
   StrategyId,
   WalletView,
 } from "@/lib/types";
-import { UPDOWN_ORDER } from "@/lib/updown";
+import { UPDOWN_ORDER, wallClockLeft } from "@/lib/updown";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
@@ -480,8 +480,9 @@ function RoundBoard({
     if (!q.horizon || !q.asset) continue;
     const key = `${q.asset}-${q.horizon}`;
     const row = map.get(key) || { key, asset: q.asset, horizon: q.horizon };
-    if (q.leg === "down") row.down = q;
-    else row.up = q;
+    const newer = (a?: Quote, b?: Quote) => ((b?.windowEnd || 0) >= (a?.windowEnd || 0) ? b : a);
+    if (q.leg === "down") row.down = newer(row.down, q);
+    else row.up = newer(row.up, q);
     map.set(key, row);
   }
   const rounds = [...map.values()]
@@ -529,7 +530,7 @@ function RoundBoard({
 
   const q = q0;
   const total = featured.horizon === "15m" ? 900 : 300;
-  const left = Math.max(0, ((q.windowEnd || now) - now) / 1000);
+  const left = wallClockLeft(featured.horizon, now);
   const p = Math.max(0, Math.min(1, left / total));
   const upPx = q.price;
   const dnPx = featured.down?.price ?? 1 - upPx;
@@ -570,7 +571,7 @@ function RoundBoard({
       <div className="mb-3 flex flex-wrap gap-2">
         {rounds.map((r) => {
           const rq = r.up!;
-          const rLeft = Math.max(0, ((rq.windowEnd || now) - now) / 1000);
+          const rLeft = wallClockLeft(r.horizon, now);
           const heldHere = !!(positions[rq.id] || (r.down && positions[r.down.id]));
           const rLead = (rq.spot || 0) >= (rq.openPx || 0);
           return (
