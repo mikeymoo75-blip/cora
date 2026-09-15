@@ -93,11 +93,25 @@ export function Desk() {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetName, setResetName] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const seenFill = useRef("");
   useEffect(() => {
     const mode = readTheme();
     setTheme(mode);
     applyTheme(mode);
   }, []);
+  useEffect(() => {
+    const f = desk?.fills[0];
+    if (!desk || !f) return;
+    if (seenFill.current && f.id !== seenFill.current && f.side === "buy") {
+      const p = desk.positions[f.symbol];
+      const q = desk.quotes[f.symbol];
+      const end = p?.windowEnd;
+      const left = end ? Math.max(0, Math.ceil((end - Date.now()) / 1000)) : 0;
+      const clock = left > 0 ? ` · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left` : "";
+      toast(`${q?.symbol ?? f.symbol} opened${clock}`);
+    }
+    seenFill.current = f.id;
+  }, [desk, desk?.fills[0]?.id]);
 
   if (!desk) {
     return (
@@ -112,20 +126,6 @@ export function Desk() {
   const holdings = Object.values(desk.positions).sort(
     (a, b) => (b.openedAt || 0) - (a.openedAt || 0),
   );
-  const seenFill = useRef("");
-  useEffect(() => {
-    const f = desk.fills[0];
-    if (!f) return;
-    if (seenFill.current && f.id !== seenFill.current && f.side === "buy") {
-      const p = desk.positions[f.symbol];
-      const q = desk.quotes[f.symbol];
-      const end = p?.windowEnd;
-      const left = end ? Math.max(0, Math.ceil((end - Date.now()) / 1000)) : 0;
-      const clock = left > 0 ? ` · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left` : "";
-      toast(`${q?.symbol ?? f.symbol} opened${clock}`);
-    }
-    seenFill.current = f.id;
-  }, [desk.fills[0]?.id]);
   const openMtm = holdings.reduce((n, p) => {
     const q = desk.quotes[p.symbol];
     return n + (positionMark(p, q) - p.avg) * p.qty;
