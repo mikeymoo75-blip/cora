@@ -112,6 +112,18 @@ export function isCurrentRound(
   return false;
 }
 
+/** Your ticket vs the coin. DN + coin up is always a loss. */
+export function sideWon(
+  leg: string | undefined,
+  spot: number,
+  open: number,
+): boolean | null {
+  if (!(spot > 0 && open > 0)) return null;
+  if (leg === "down") return spot < open;
+  if (leg === "up") return spot >= open;
+  return null;
+}
+
 /** Last-minute log return + acceleration (change in 1m return). */
 export function momFromCloses(closes: number[]): { mom: number; accel: number } {
   const n = closes.length;

@@ -33,7 +33,7 @@ import type {
   StrategyId,
   WalletView,
 } from "@/lib/types";
-import { UPDOWN_ORDER, currentWindows, isCurrentRound, wallClockLeft, windowBounds } from "@/lib/updown";
+import { UPDOWN_ORDER, currentWindows, isCurrentRound, sideWon, wallClockLeft, windowBounds } from "@/lib/updown";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
@@ -588,11 +588,13 @@ function RoundBoard({
       <div className="mb-3 flex flex-wrap gap-2">
         {rounds.map((r) => {
           const rLeft = wallClockLeft(r.horizon, now);
-          const heldHere = !!(
-            (r.up && positions[r.up.id]) ||
-            (r.down && positions[r.down.id])
-          );
-          const rLead = (r.up?.spot || 0) >= (r.up?.openPx || 0);
+          const upHeld = !!(r.up && positions[r.up.id]);
+          const dnHeld = !!(r.down && positions[r.down.id]);
+          const heldHere = upHeld || dnHeld;
+          const rSpot = r.up?.spot || r.down?.spot || 0;
+          const rOpen = r.up?.openPx || r.down?.openPx || 0;
+          const heldHit = upHeld ? sideWon("up", rSpot, rOpen) : dnHeld ? sideWon("down", rSpot, rOpen) : null;
+          const rLead = heldHit == null ? rSpot >= rOpen : heldHit;
           return (
             <button
               key={r.key}
@@ -940,16 +942,15 @@ function HomePane({
               const race = bagRace(desk, p, q);
               const spot = race.spot;
               const openPx = race.open;
-              const settledUp = bagSettledUp(p, spot, openPx);
-              const coinUp = settledUp === true;
-              const coinDown = settledUp === false;
               const leg = bagLeg(p, q);
-              const sideHit = (leg === "down" && coinDown) || (leg === "up" && coinUp);
-              const dnLostToUp = leg === "down" && coinUp;
-              const winning = sideHit && !settling;
-              const settleWin = settling && sideHit && !dnLostToUp;
-              const settleLose = settling && (coinUp || coinDown) && !sideHit;
-              const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
+              const hit =
+                p.settleSide && (leg === "up" || leg === "down")
+                  ? (leg === "down" ? p.settleSide === "down" : p.settleSide === "up")
+                  : sideWon(leg, spot, openPx);
+              const winning = hit === true && !settling;
+              const settleWin = settling && hit === true;
+              const settleLose = settling && hit === false;
+              const liveLose = !settling && hit === false;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
                 <li
@@ -957,7 +958,7 @@ function HomePane({
                   className={cn(
                     "relative overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]",
                     (winning || settleWin) && "bag-win",
-                    settleLose && "bag-lose",
+                    (settleLose || liveLose) && "bag-lose",
                     fresh && "bag-new",
                   )}
                 >
