@@ -878,11 +878,17 @@ function HomePane({
               const end = p.windowEnd || q?.windowEnd;
               const leftSec = end != null ? (end - now) / 1000 : horizon ? wallClockLeft(horizon, now) : null;
               const settling = end != null && now >= end;
+              const winning = mtm > 0.05;
               return (
-                <li key={p.symbol} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
+                <li
+                  key={p.symbol}
+                  className={cn("rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]", winning && "bag-win")}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-display text-xl font-semibold">{q?.symbol ?? p.symbol}</p>
+                      <p className={cn("font-display text-xl font-semibold", winning && "text-primary")}>
+                        {q?.symbol ?? p.symbol}
+                      </p>
                       <p className="text-xs text-muted">
                         {kindLabel(p.kind)}
                         {horizon ? ` · ${horizon}` : ""}
