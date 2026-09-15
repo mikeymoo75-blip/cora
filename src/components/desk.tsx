@@ -1076,12 +1076,22 @@ function HomePane({
                         className={cn(
                           "mt-1 font-mono font-semibold tabular-nums",
                           settling ? "text-base" : "text-xs",
-                          raceWith ? "text-primary" : raceAgainst ? "text-down" : "text-muted",
+                          settling && mark >= 0.94 && raceWith
+                            ? "text-primary"
+                            : settling && mark <= 0.06 && raceAgainst
+                              ? "text-down"
+                              : "text-muted",
                         )}
                       >
-                        {settling ? (raceWith ? "Won " : raceAgainst ? "Lost " : "Book ") : "Book "}
-                        {signedMoney(mtm)}
-                        {settling ? " frozen" : " if sold now"}
+                        {settling && mark >= 0.94 && raceWith
+                          ? `Won ${signedMoney(mtm)}`
+                          : settling && mark <= 0.06 && raceAgainst
+                            ? `Lost ${signedMoney(mtm)}`
+                            : settling && raceWith
+                              ? `Waiting on $1 · book ${signedMoney(mtm)}`
+                              : settling && raceAgainst
+                                ? `Waiting on $0 · book ${signedMoney(mtm)}`
+                                : `Book ${signedMoney(mtm)} if sold now`}
                       </p>
                     </div>
                   </div>
