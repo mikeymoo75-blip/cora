@@ -51,6 +51,8 @@ export type Position = {
   leg?: "up" | "down";
   /** Last live print — used to freeze P/L at 0:00. */
   lastMark?: number;
+  lastSpot?: number;
+  lastOpen?: number;
   /** Frozen at 0:00 until venue 0/1. */
   closedMark?: number;
 };

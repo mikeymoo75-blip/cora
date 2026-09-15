@@ -775,6 +775,34 @@ function bagHorizon(p: Position, q?: Quote): "5m" | "15m" | undefined {
   return undefined;
 }
 
+function bagLeg(p: Position, q?: Quote): "up" | "down" | "" {
+  if (p.leg === "up" || p.leg === "down") return p.leg;
+  if (q?.leg === "up" || q?.leg === "down") return q.leg;
+  const s = `${q?.symbol || ""} ${p.symbol}`.toLowerCase();
+  if (s.includes(":down") || s.includes("-dn") || s.endsWith(" down")) return "down";
+  if (s.includes(":up") || s.includes("-up") || s.endsWith(" up")) return "up";
+  return "";
+}
+
+function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; open: number } {
+  const from = (x?: Quote) => ({
+    spot: x?.spot || 0,
+    open: x?.openPx || 0,
+  });
+  let r = from(q);
+  if (r.spot > 0 && r.open > 0) return r;
+  const asset = p.asset || q?.asset;
+  const horizon = p.horizon || q?.horizon;
+  if (asset && horizon) {
+    for (const x of Object.values(desk.quotes)) {
+      if (x.asset === asset && x.horizon === horizon && (x.spot || 0) > 0 && (x.openPx || 0) > 0) {
+        return { spot: x.spot || 0, open: x.openPx || 0 };
+      }
+    }
+  }
+  return { spot: p.lastSpot || 0, open: p.lastOpen || 0 };
+}
+
 function HomePane({
   desk,
   holdings,
@@ -891,16 +919,16 @@ function HomePane({
               const mark = positionMark(p, q, now);
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
-              const spot = q?.spot || 0;
-              const openPx = q?.openPx || 0;
+              const race = bagRace(desk, p, q);
+              const spot = race.spot;
+              const openPx = race.open;
               const coinUp = spot > 0 && openPx > 0 && spot >= openPx;
-              const sideHit =
-                spot > 0 &&
-                openPx > 0 &&
-                (p.leg === "down" ? !coinUp : p.leg === "up" ? coinUp : false);
+              const coinDown = spot > 0 && openPx > 0 && spot < openPx;
+              const leg = bagLeg(p, q);
+              const sideHit = (leg === "down" && coinDown) || (leg === "up" && coinUp);
               const winning = sideHit && !settling;
               const settleWin = settling && sideHit;
-              const settleLose = settling && spot > 0 && openPx > 0 && !sideHit;
+              const settleLose = settling && (coinUp || coinDown) && !sideHit;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
