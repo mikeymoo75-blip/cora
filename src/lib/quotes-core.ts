@@ -198,10 +198,6 @@ function polyTicker(slug: string, question: string, leg?: "up" | "down"): string
   const words = raw.split(/[^a-z0-9]+/).filter((w) => w && !POLY_STOP.has(w) && w.length > 1);
   return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
 }
-  const raw = (slug || question || "poly").toLowerCase().replace(/-\d+$/, "");
-  const words = raw.split(/[^a-z0-9]+/).filter((w) => w && !POLY_STOP.has(w) && w.length > 1);
-  return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
-}
 
 function gammaBook(m: GammaMarket, leg: "up" | "down"): { bid: number; ask: number; bidSize: number; askSize: number } | null {
   const prices = parseJsonArray(m.outcomePrices).map(Number);
