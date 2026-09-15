@@ -769,11 +769,19 @@ function RoundBoard({
   );
 }
 
+function bagTitle(p: Position, q?: Quote): string {
+  if (q?.symbol && !/updown/i.test(q.symbol)) return q.symbol;
+  const leg = bagLeg(p, q);
+  const horizon = p.horizon || q?.horizon || bagHorizon(p, q);
+  const asset = (p.asset || q?.asset || "").toUpperCase();
+  if (asset && horizon) return `${asset}-${horizon}-${leg === "down" ? "DN" : "UP"}`;
+  return q?.symbol ?? p.symbol;
+}
 function bagHorizon(p: Position, q?: Quote): "5m" | "15m" | undefined {
   if (q?.horizon) return q.horizon;
   const s = `${q?.symbol || ""} ${p.symbol}`;
-  if (/-15m-/i.test(s) || /15m/i.test(s)) return "15m";
-  if (/-5m-/i.test(s) || /5m/i.test(s)) return "5m";
+  if (/-15m-/i.test(s) || /15m/i.test(s) || /updown.?15m/i.test(s)) return "15m";
+  if (/-5m-/i.test(s) || /5m/i.test(s) || /updown.?5m/i.test(s)) return "5m";
   return undefined;
 }
 
@@ -976,7 +984,7 @@ function HomePane({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className={cn("font-display text-xl font-semibold", (winning || settleWin) && "text-primary")}>
-                        {q?.symbol ?? p.symbol}
+                        {bagTitle(p, q)}
                       </p>
                       <p className="text-xs text-muted">
                         {kindLabel(p.kind)}

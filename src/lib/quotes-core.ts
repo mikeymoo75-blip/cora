@@ -187,7 +187,17 @@ function parseJsonArray(v: unknown): string[] {
   return [];
 }
 
-function polyTicker(slug: string, question: string): string {
+function polyTicker(slug: string, question: string, leg?: "up" | "down"): string {
+  const rawSlug = (slug || "").toLowerCase();
+  const ud = rawSlug.match(/^([a-z]+)-updown-(5m|15m)/);
+  if (ud) {
+    const side = leg === "down" ? "DN" : "UP";
+    return `${ud[1]!.toUpperCase()}-${ud[2]}-${side}`;
+  }
+  const raw = (slug || question || "poly").toLowerCase().replace(/-\d+$/, "");
+  const words = raw.split(/[^a-z0-9]+/).filter((w) => w && !POLY_STOP.has(w) && w.length > 1);
+  return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
+}
   const raw = (slug || question || "poly").toLowerCase().replace(/-\d+$/, "");
   const words = raw.split(/[^a-z0-9]+/).filter((w) => w && !POLY_STOP.has(w) && w.length > 1);
   return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
@@ -564,13 +574,22 @@ export async function refreshHeldPoly(heldIds: string[]): Promise<Quote[]> {
       const resolved = px <= 0.04 || px >= 0.96;
       const q = marketToQuote(row, true);
       if (!q) continue;
+      const ud = (row.slug || "").toLowerCase().match(/^([a-z]+)-updown-(5m|15m)/);
       out.push({
         ...q,
         id,
+        symbol: polyTicker(row.slug || "", row.question || "", leg || undefined),
         price: px,
         bid: resolved ? px : q.bid,
         ask: resolved ? px : q.ask,
         askSize: resolved ? 0 : q.askSize,
+        ...(ud
+          ? {
+              asset: ud[1]!.toUpperCase(),
+              horizon: ud[2] as "5m" | "15m",
+              leg: (leg || "up") as "up" | "down",
+            }
+          : {}),
       });
     } catch {
       /* leave last known quote */

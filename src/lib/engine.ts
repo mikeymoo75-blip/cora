@@ -1687,6 +1687,7 @@ export function mergeQuotes(
             fair: old.fair,
             twapLive: old.twapLive,
             clobTokenId: old.clobTokenId,
+            symbol: old.symbol,
           }
         : {}),
     };
