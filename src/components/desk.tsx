@@ -32,7 +32,7 @@ import type {
   StrategyId,
   WalletView,
 } from "@/lib/types";
-import { UPDOWN_ORDER, isLiveWindow, wallClockLeft } from "@/lib/updown";
+import { UPDOWN_ORDER, isLiveWindow, wallClockLeft, windowBounds } from "@/lib/updown";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
@@ -481,9 +481,14 @@ function RoundBoard({
     if (!isLiveWindow(q, now)) continue;
     const key = `${q.asset}-${q.horizon}`;
     const row = map.get(key) || { key, asset: q.asset, horizon: q.horizon };
-    const newer = (a?: Quote, b?: Quote) => ((b?.windowEnd || 0) >= (a?.windowEnd || 0) ? b : a);
-    if (q.leg === "down") row.down = newer(row.down, q);
-    else row.up = newer(row.up, q);
+    const liveEnd = windowBounds(q.horizon, now).end;
+    const closer = (a?: Quote, b?: Quote) => {
+      if (!a) return b;
+      if (!b) return a;
+      return Math.abs((b.windowEnd || 0) - liveEnd) < Math.abs((a.windowEnd || 0) - liveEnd) ? b : a;
+    };
+    if (q.leg === "down") row.down = closer(row.down, q);
+    else row.up = closer(row.up, q);
     map.set(key, row);
   }
   const rounds = [...map.values()]

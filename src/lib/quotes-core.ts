@@ -431,7 +431,7 @@ async function poolMap<T>(items: T[], n: number, fn: (item: T) => Promise<void>)
   }
 }
 
-async function fetchUpDownRounds(): Promise<Quote[]> {
+export async function fetchUpDownRounds(): Promise<Quote[]> {
   ensureTwapStream();
   const windows = currentWindows();
   const tapes = new Map<string, SpotTape>();

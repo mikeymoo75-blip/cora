@@ -53,24 +53,23 @@ export function currentWindows(at = Date.now()): UpDownWindow[] {
   const w15 = Math.floor(sec / 900) * 900;
   const assets = UPDOWN_ASSETS;
   const out: UpDownWindow[] = [];
-  for (const a of assets) {
+  const push = (a: (typeof UPDOWN_ASSETS)[number], horizon: UpDownHorizon, start: number, span: number) => {
     const tag = a.asset.toLowerCase();
     out.push({
       asset: a.asset,
-      horizon: "5m",
-      windowStart: w5 * 1000,
-      windowEnd: (w5 + 300) * 1000,
-      slug: `${tag}-updown-5m-${w5}`,
+      horizon,
+      windowStart: start * 1000,
+      windowEnd: (start + span) * 1000,
+      slug: `${tag}-updown-${horizon}-${start}`,
       binance: a.binance,
     });
-    out.push({
-      asset: a.asset,
-      horizon: "15m",
-      windowStart: w15 * 1000,
-      windowEnd: (w15 + 900) * 1000,
-      slug: `${tag}-updown-15m-${w15}`,
-      binance: a.binance,
-    });
+  };
+  for (const a of assets) {
+    push(a, "5m", w5, 300);
+    push(a, "15m", w15, 900);
+    // Grab the next 5m before this one dies so the chip does not vanish for 15s.
+    if (w5 + 300 - sec <= 25) push(a, "5m", w5 + 300, 300);
+    if (w15 + 900 - sec <= 25) push(a, "15m", w15 + 900, 900);
   }
   return out;
 }
@@ -97,7 +96,8 @@ export function isLiveWindow(q: { horizon?: string; windowEnd?: number }, at = D
   if (!q.horizon) return false;
   const live = windowBounds(q.horizon, at).end;
   if (!q.windowEnd) return true;
-  return q.windowEnd >= live - 1500;
+  if (q.windowEnd >= live - 1500) return true;
+  return q.windowEnd >= at - 12_000;
 }
 
 /** Last-minute log return + acceleration (change in 1m return). */

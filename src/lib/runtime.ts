@@ -5,7 +5,7 @@ import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
 import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { riskView } from "./risk";
-import { fetchMarketSnapshot, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
+import { fetchMarketSnapshot, fetchUpDownRounds, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
 import { ensureTwapStream } from "./twap";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, POLY_FALLBACK, seedQuote } from "./universe";
@@ -309,6 +309,7 @@ type G = typeof globalThis & {
   __coraLoop?: ReturnType<typeof setInterval>;
   __coraPumpLoop?: ReturnType<typeof setInterval>;
   __coraPolyLoop?: ReturnType<typeof setInterval>;
+  __coraRoundLoop?: ReturnType<typeof setInterval>;
 };
 
 function g(): G {
@@ -607,6 +608,19 @@ export async function tickHeldExitsLoop(): Promise<void> {
   }
 }
 
+export async function refreshUpDownLoop(): Promise<void> {
+  try {
+    const rounds = await fetchUpDownRounds();
+    if (!rounds.length) return;
+    const s = getState();
+    const quotes: DeskState["quotes"] = {};
+    for (const q of overlayLivePoly(mergeQuotes(s.quotes, rounds))) quotes[q.id] = q;
+    setState({ ...s, quotes, loopAt: Date.now(), loopOk: true });
+  } catch (err) {
+    console.error("[cora] updown refresh failed", err);
+  }
+}
+
 export function tickPolyFast(): void {
   const s = getState();
   const quotes: DeskState["quotes"] = {};
@@ -624,9 +638,11 @@ export function startDeskLoop() {
       if (gg.__coraLoop) clearInterval(gg.__coraLoop);
       if (gg.__coraPumpLoop) clearInterval(gg.__coraPumpLoop);
       if (gg.__coraPolyLoop) clearInterval(gg.__coraPolyLoop);
+      if (gg.__coraRoundLoop) clearInterval(gg.__coraRoundLoop);
       gg.__coraLoop = undefined;
       gg.__coraPumpLoop = undefined;
       gg.__coraPolyLoop = undefined;
+      gg.__coraRoundLoop = undefined;
     });
   }
   if (g().__coraLoop) return;
@@ -644,6 +660,9 @@ export function startDeskLoop() {
   g().__coraPolyLoop = setInterval(() => {
     tickPolyFast();
   }, 400);
+  g().__coraRoundLoop = setInterval(() => {
+    void refreshUpDownLoop();
+  }, 5_000);
 }
 
 export function placeOrder(side: "buy" | "sell", symbol: string, notional: number, close = false) {
