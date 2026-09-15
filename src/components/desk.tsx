@@ -108,10 +108,14 @@ export function Desk() {
   }
 
   const equity = desk.equityNow;
-  const dayPnl = equity - desk.dayStartEquity;
+  const cashed = desk.stats.realizedPnl;
+  const holdings = Object.values(desk.positions);
+  const openMtm = holdings.reduce((n, p) => {
+    const q = desk.quotes[p.symbol];
+    return n + (positionMark(p, q) - p.avg) * p.qty;
+  }, 0);
   const botsOn = desk.bots.filter((b) => b.enabled);
   const last = desk.lastFill;
-  const holdings = Object.values(desk.positions);
 
   const sellAll = (id: string) => {
     const q = desk.quotes[id];
@@ -267,15 +271,15 @@ export function Desk() {
           <WalletCard key={w.id} wallet={w} />
         ))}
         <div className="rounded-2xl bg-surface p-3 shadow-[var(--shadow-card)] md:p-4">
-          <p className="text-[10px] font-semibold tracking-wide text-muted uppercase md:text-xs">Today</p>
-          <p className={cn("mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl", signedClass(dayPnl))}>
-            {signedMoney(dayPnl)}
+          <p className="text-[10px] font-semibold tracking-wide text-muted uppercase md:text-xs">Today · cashed</p>
+          <p className={cn("mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl", signedClass(cashed))}>
+            {signedMoney(cashed)}
           </p>
           <p className="mt-0.5 hidden text-sm text-muted md:block">
-            Total {compactMoney(equity)} · cashed {signedMoney(desk.stats.realizedPnl)}
+            Open bags {signedMoney(openMtm)} · book {compactMoney(equity)}
           </p>
           <p className="mt-0.5 text-[11px] text-muted md:hidden">
-            {compactMoney(equity)}
+            open {signedMoney(openMtm)}
           </p>
         </div>
       </section>
@@ -379,7 +383,7 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
       <p className="mt-0.5 text-[11px] opacity-90 md:text-sm">
         cash {compactMoney(wallet.cash)}
         <span className="hidden md:inline"> · </span>
-        <span className="block font-semibold md:inline">{signedMoney(wallet.netPnl)}</span>
+        <span className="block font-semibold md:inline">{signedMoney(wallet.realizedPnl)}</span>
       </p>
     </div>
   );
