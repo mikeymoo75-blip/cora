@@ -168,15 +168,20 @@ export function walletEquity(state: DeskState, id: WalletId): number {
   return eq;
 }
 
+function honestBookPx(px?: number): number {
+  if (!px || px <= 0) return 0;
+  if (px <= 0.06 || px >= 0.94) return 0;
+  return px;
+}
+
 /** Live mark, or frozen close if this round's clock already hit 0:00. */
 export function positionMark(p: Position, q?: Quote, now = Date.now()): number {
-  const live = q?.price && q.price > 0 ? q.price : 0;
+  const live = honestBookPx(q?.price);
   const settling = p.kind === "poly" && !!p.windowEnd && now >= p.windowEnd;
   if (settling) {
-    const frozen = [p.closedMark, p.lastMark, p.peak].find((n) => n && n > 0);
-    return frozen || p.avg;
+    return honestBookPx(p.closedMark) || honestBookPx(p.lastMark) || p.avg;
   }
-  return live || p.lastMark || p.avg;
+  return live || honestBookPx(p.lastMark) || p.avg;
 }
 
 export function markToMarket(
@@ -1539,7 +1544,7 @@ export function tickHeldExits(state: DeskState): DeskState {
   for (const pos of Object.values(next.positions)) {
     const quote = next.quotes[pos.symbol];
     const windowOver = !!(pos.windowEnd && Date.now() >= pos.windowEnd);
-    const last = quote && quote.price > 0 ? quote.price : pos.lastMark;
+    const last = honestBookPx(quote?.price) || pos.lastMark;
     if (windowOver || last) {
       next = {
         ...next,
@@ -1548,7 +1553,7 @@ export function tickHeldExits(state: DeskState): DeskState {
           [pos.symbol]: {
             ...pos,
             lastMark: windowOver ? pos.lastMark || last : last || pos.lastMark,
-            closedMark: pos.closedMark || (windowOver && (pos.lastMark || last) ? pos.lastMark || last : undefined),
+            closedMark: pos.closedMark || (windowOver ? pos.lastMark || last : undefined),
           },
         },
       };
@@ -1556,22 +1561,24 @@ export function tickHeldExits(state: DeskState): DeskState {
     if (!quote) continue;
     if (pos.kind === "stock" && !rth) continue;
     const stamped = next.positions[pos.symbol]!;
+    const liveSpot = !windowOver && quote.spot && quote.spot > 0 ? quote.spot : 0;
+    const liveOpen = !windowOver && quote.openPx && quote.openPx > 0 ? quote.openPx : 0;
     next = {
       ...next,
       positions: {
         ...next.positions,
         [pos.symbol]: {
           ...stamped,
-          peak: windowOver ? stamped.peak : Math.max(stamped.peak, quote.price),
+          peak: windowOver ? stamped.peak : Math.max(stamped.peak, honestBookPx(quote.price) || stamped.peak),
           windowStart: stamped.windowStart || quote.windowStart,
           windowEnd: stamped.windowEnd || quote.windowEnd,
           horizon: stamped.horizon || quote.horizon,
           asset: stamped.asset || quote.asset,
           leg: stamped.leg || quote.leg,
           lastMark: windowOver ? stamped.lastMark || last : last,
-          lastSpot: windowOver ? stamped.lastSpot || quote.spot : quote.spot || stamped.lastSpot,
-          lastOpen: windowOver ? stamped.lastOpen || quote.openPx : quote.openPx || stamped.lastOpen,
-          closedMark: stamped.closedMark,
+          lastSpot: windowOver ? stamped.lastSpot : liveSpot || stamped.lastSpot,
+          lastOpen: windowOver ? stamped.lastOpen : liveOpen || stamped.lastOpen,
+          closedMark: stamped.closedMark || (windowOver ? stamped.lastMark || last : undefined),
         },
       },
     };

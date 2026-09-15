@@ -992,7 +992,13 @@ function HomePane({
                   <p className="mt-2 font-mono text-xs text-muted">
                     {qtyFmt(p.qty)} · {money(value)} · avg{" "}
                     {p.kind === "poly" ? eventOdds(p.avg) : money(p.avg)}
-                    {q && p.kind === "poly" ? ` · now ${eventOdds(mark)}` : ""}
+                    {p.kind === "poly"
+                      ? settling
+                        ? ` · frozen ${eventOdds(mark)}`
+                        : q
+                          ? ` · now ${eventOdds(mark)}`
+                          : ""
+                      : ""}
                   </p>
                   <div className="relative z-10 mt-3 grid grid-cols-2 gap-2">
                     <button
