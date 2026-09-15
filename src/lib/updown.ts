@@ -171,8 +171,9 @@ export function updownExplain(
     return { action: "hold", why: "Waiting on spot vs Price-to-Beat." };
   }
   if (elapsed < 15) return { action: "hold", why: "First 15s of the round — book is noisy." };
-  if (tau > 0 && tau < 15 && thisFair < 0.9) {
-    return { action: "hold", why: `Last ${Math.ceil(tau)}s — only a lock (≥90¢ fair) is worth chasing.` };
+  if (tau <= 0) return { action: "hold", why: "Window is closed — no new tickets." };
+  if (tau < 15) {
+    return { action: "hold", why: `Last ${Math.ceil(tau)}s — no new tickets. Open bags hold to settle.` };
   }
   if (last < 0.08 || last > 0.92) {
     return { action: "hold", why: `Book already at ${Math.round(last * 100)}¢ — no misprice left.` };
