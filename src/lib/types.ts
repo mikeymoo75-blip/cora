@@ -28,6 +28,8 @@ export type Quote = {
   windowEnd?: number;
   spot?: number;
   openPx?: number;
+  /** True when spot/open came from Chainlink TWAP (ok to bet). Tape can still show Binance/HL. */
+  twapLive?: boolean;
   pairId?: string;
   leg?: "up" | "down";
   asset?: string;

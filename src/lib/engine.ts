@@ -1632,6 +1632,7 @@ export function mergeQuotes(
             leg: old.leg,
             pairId: old.pairId,
             fair: old.fair,
+            twapLive: old.twapLive,
             clobTokenId: old.clobTokenId,
           }
         : {}),

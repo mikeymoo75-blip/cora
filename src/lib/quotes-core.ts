@@ -1,6 +1,6 @@
 import { CORE_SEEDS, POLY_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
-import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses } from "./updown";
+import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses, UPDOWN_ASSETS } from "./updown";
 import { ensureTwapStream, twapCloses, twapNow, twapOpen } from "./twap";
 import { clobLive, ensureClobStream } from "./clob-ws";
 
@@ -434,6 +434,13 @@ async function poolMap<T>(items: T[], n: number, fn: (item: T) => Promise<void>)
 async function fetchUpDownRounds(): Promise<Quote[]> {
   ensureTwapStream();
   const windows = currentWindows();
+  const tapes = new Map<string, SpotTape>();
+  await Promise.all(
+    UPDOWN_ASSETS.map(async (a) => {
+      const tape = a.hl ? await fetchHlTape(a.hl) : a.binance ? await fetchBinanceTape(a.binance) : null;
+      if (tape) tapes.set(a.asset, tape);
+    }),
+  );
   const out: Quote[] = [];
   await poolMap(windows, 6, async (w) => {
       try {
@@ -461,19 +468,14 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const lookback = Number((m as { cryptoMarketConfig?: { twapLookbackSeconds?: number } }).cryptoMarketConfig?.twapLookbackSeconds) || 60;
         const twapSpot = twapNow(w.asset, lookback);
         const twapO = twapOpen(w.asset, w.windowStart, lookback);
-        let open = twapO;
-        let spot = twapSpot;
-        let closes = twapCloses(w.asset, w.windowStart, lookback);
-        if (!(spot > 0) && w.asset === "HYPE") {
-          const hl = await fetchHlTape("HYPE");
-          if (hl) {
-            spot = hl.spot;
-            if (!(open > 0)) open = openFromTape(hl.rows, w.windowStart, w.horizon) || hl.spot;
-            if (closes.length < 4) {
-              closes = windowCloses(hl.fine.length ? hl.fine : hl.rows, w.windowStart, open, spot);
-            }
-          }
-        }
+        const tape = tapes.get(w.asset);
+        const tapeOpen = tape ? openFromTape(tape.rows, w.windowStart, w.horizon) : 0;
+        const tapeSpot = tape?.spot || 0;
+        const open = twapO || tapeOpen;
+        const spot = twapSpot || tapeSpot;
+        const twapCl = twapCloses(w.asset, w.windowStart, lookback);
+        const fine = tape && tape.fine.length >= 8 ? tape.fine : tape?.rows;
+        const closes = twapCl.length >= 4 ? twapCl : tape && open ? windowCloses(fine || tape.rows, w.windowStart, open, spot) : twapCl;
         const sigma1m = sigmaFromCloses(closes);
         const { mom } = momFromCloses(closes);
         const tau = Math.max(0, (w.windowEnd - Date.now()) / 1000);
@@ -491,6 +493,7 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
           windowEnd: w.windowEnd,
           spot: spot || undefined,
           openPx: open || undefined,
+          twapLive: !!(twapSpot && twapO),
           asset: w.asset,
           horizon: w.horizon,
           spark,
@@ -765,18 +768,22 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
       }
     }
     if (next.horizon && next.asset) {
-      const spot = twapNow(next.asset, 60);
-      const open = next.openPx || (next.windowStart ? twapOpen(next.asset, next.windowStart, 60) : 0);
-      const closes = next.windowStart ? twapCloses(next.asset, next.windowStart, 60) : next.spark;
+      const tSpot = twapNow(next.asset, 60);
+      const tOpen = next.windowStart ? twapOpen(next.asset, next.windowStart, 60) : 0;
+      const closes = tSpot && next.windowStart ? twapCloses(next.asset, next.windowStart, 60) : [];
       const sigma1m = sigmaFromCloses(closes.length ? closes : next.spark);
       const { mom } = momFromCloses(closes.length ? closes : next.spark);
       const tau = Math.max(0, ((next.windowEnd || 0) - Date.now()) / 1000);
-      const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : next.fair;
+      const fair = tSpot && tOpen ? fairUp(tSpot, tOpen, sigma1m, tau, mom) : next.fair ?? 0.5;
+      const spot = tSpot || next.spot || 0;
+      const open = tOpen || next.openPx || 0;
       next = {
         ...next,
         spot: spot || next.spot,
         openPx: open || next.openPx,
+        twapLive: !!(tSpot && tOpen),
         fair,
+        spark: closes.length >= 4 ? closes : next.spark,
         changePct: spot && open ? ((spot - open) / open) * 100 : next.changePct,
       };
     }

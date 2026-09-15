@@ -193,7 +193,13 @@ export function updownExplain(
     };
   }
 
-  if (!quote.live || !quote.openPx || !quote.spot) {
+  if (!quote.live) {
+    return { action: "hold", why: "Waiting on a live book." };
+  }
+  if (!quote.twapLive) {
+    return { action: "hold", why: "Waiting on Chainlink TWAP vs Price-to-Beat. Tape is Binance/HL for display only." };
+  }
+  if (!quote.openPx || !quote.spot) {
     return { action: "hold", why: "Waiting on Chainlink TWAP vs Price-to-Beat (not Binance)." };
   }
   if (!(quote.ask && quote.ask > 0) || (quote.askSize || 0) < 5) {
