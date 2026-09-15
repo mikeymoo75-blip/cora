@@ -748,6 +748,14 @@ function RoundBoard({
   );
 }
 
+function bagHorizon(p: Position, q?: Quote): "5m" | "15m" | undefined {
+  if (q?.horizon) return q.horizon;
+  const s = `${q?.symbol || ""} ${p.symbol}`;
+  if (/-15m-/i.test(s) || /15m/i.test(s)) return "15m";
+  if (/-5m-/i.test(s) || /5m/i.test(s)) return "5m";
+  return undefined;
+}
+
 function HomePane({
   desk,
   holdings,
@@ -860,39 +868,41 @@ function HomePane({
               const mark = q?.price ?? p.avg;
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
-              const leftSec = q?.windowEnd ? (q.windowEnd - now) / 1000 : null;
-              const settling = p.kind === "poly" && (leftSec == null || leftSec <= 0);
-              const roundClock = settling
-                ? "settling"
-                : leftSec != null
-                  ? `${clockLeft(leftSec)} left`
-                  : null;
+              const horizon = bagHorizon(p, q);
+              const leftSec =
+                q?.windowEnd && q.windowEnd > now
+                  ? (q.windowEnd - now) / 1000
+                  : horizon
+                    ? wallClockLeft(horizon, now)
+                    : null;
+              const settling = p.kind === "poly" && horizon != null && (leftSec == null || leftSec <= 0);
               return (
                 <li key={p.symbol} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
-                  <div className="flex items-baseline justify-between gap-2">
+                  <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-display text-xl font-semibold">{q?.symbol ?? p.symbol}</p>
                       <p className="text-xs text-muted">
                         {kindLabel(p.kind)}
-                        {q?.horizon ? ` · ${q.horizon}` : ""}
+                        {horizon ? ` · ${horizon}` : ""}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className={cn("font-mono text-lg font-semibold tabular-nums", signedClass(mtm))}>
-                        {signedMoney(mtm)}
-                      </p>
-                      {roundClock && (
-                        <p
-                          className={cn(
-                            "font-mono text-base font-semibold tabular-nums",
-                            leftSec != null && leftSec < 30 ? "text-down" : "text-fg",
-                          )}
-                        >
-                          {roundClock}
-                        </p>
-                      )}
-                    </div>
+                    <p className={cn("font-mono text-lg font-semibold tabular-nums", signedClass(mtm))}>
+                      {signedMoney(mtm)}
+                    </p>
                   </div>
+                  {horizon && (
+                    <p
+                      className={cn(
+                        "mt-2 font-mono text-3xl font-semibold tabular-nums tracking-tight",
+                        settling || (leftSec != null && leftSec < 30) ? "text-down" : "text-fg",
+                      )}
+                    >
+                      {settling ? "0:00" : clockLeft(leftSec || 0)}
+                      <span className="ml-2 text-sm font-medium text-muted">
+                        {settling ? "settling" : "left"}
+                      </span>
+                    </p>
+                  )}
                   <p className="mt-2 font-mono text-xs text-muted">
                     {qtyFmt(p.qty)} · {money(value)} · avg{" "}
                     {p.kind === "poly" ? eventOdds(p.avg) : money(p.avg)}
