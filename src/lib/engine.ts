@@ -327,6 +327,29 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
   return map[strategy][side];
 }
 
+function clamp01(n: number) {
+  return Math.min(0.99, Math.max(0.01, n));
+}
+
+/** Polymarket taker: buy the ask, sell the bid. Window over → 1¢ or 99¢ from spot vs open. */
+export function paperFillPx(quote: Quote, side: "buy" | "sell"): number {
+  if (quote.kind === "poly") {
+    if (side === "sell" && quote.horizon && quote.windowEnd && Date.now() >= quote.windowEnd - 500) {
+      if (quote.spot && quote.openPx) {
+        const upWon = quote.spot >= quote.openPx;
+        const won = quote.leg === "down" ? !upWon : upWon;
+        return won ? 0.99 : 0.01;
+      }
+      if (quote.price >= 0.96) return 0.99;
+      if (quote.price <= 0.04) return 0.01;
+    }
+    if (side === "buy") return clamp01(quote.ask || quote.price);
+    return clamp01(quote.bid || quote.price);
+  }
+  const slip = slipBps(quote.kind) / 10_000;
+  return side === "buy" ? quote.price * (1 + slip) : quote.price * (1 - slip);
+}
+
 export function applyFill(
   state: DeskState,
   side: "buy" | "sell",
@@ -345,9 +368,9 @@ export function applyFill(
   const wid = walletIdFor(kind);
   const book = s0.wallets[wid];
 
-  const slip = slipBps(kind) / 10_000;
   const expectedPrice = quote.price;
-  const px = side === "buy" ? quote.price * (1 + slip) : quote.price * (1 - slip);
+  const px = paperFillPx(quote, side);
+  if (!(px > 0)) return s0;
   const slipActual = expectedPrice > 0 ? ((px - expectedPrice) / expectedPrice) * 10_000 : 0;
   let qty = notional / px;
   const pos = s0.positions[symbol];
@@ -355,6 +378,13 @@ export function applyFill(
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return s0;
     qty = Math.min(qty, pos.qty);
+    if (
+      quote.horizon &&
+      quote.windowEnd &&
+      Date.now() >= quote.windowEnd - 500
+    ) {
+      qty = pos.qty;
+    }
   } else {
     const maxNotional = book.cash * 0.98;
     if (notional > maxNotional) qty = maxNotional / px;
@@ -1524,6 +1554,19 @@ export function mergeQuotes(
       spark,
       changePct: Number.isFinite(changePct) ? changePct : q.changePct,
       seenAt: Date.now(),
+      ...(old?.horizon && !q.horizon
+        ? {
+            horizon: old.horizon,
+            windowStart: old.windowStart,
+            windowEnd: old.windowEnd,
+            spot: old.spot,
+            openPx: old.openPx,
+            asset: old.asset,
+            leg: old.leg,
+            pairId: old.pairId,
+            fair: old.fair,
+          }
+        : {}),
     };
   }
   return out;

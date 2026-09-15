@@ -15,6 +15,9 @@ export type Quote = {
   seenAt?: number;
   /** Bid-ask in basis points when we have a book. */
   spreadBps?: number;
+  /** Taker bid/ask (dollars, 0–1) for Polymarket. */
+  bid?: number;
+  ask?: number;
   /** Fair P(up) for 5m/15m crypto rounds. */
   fair?: number;
   windowStart?: number;

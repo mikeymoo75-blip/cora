@@ -190,6 +190,20 @@ function polyTicker(slug: string, question: string): string {
   return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
 }
 
+function gammaBook(m: GammaMarket, mid: number): { bid: number; ask: number; spreadBps?: number } {
+  const bid = Number(m.bestBid);
+  const ask = Number(m.bestAsk);
+  if (bid > 0 && ask > bid) {
+    return { bid, ask, spreadBps: ((ask - bid) / ((ask + bid) / 2)) * 10_000 };
+  }
+  const hair = 0.02;
+  return {
+    bid: Math.max(0.01, mid - hair),
+    ask: Math.min(0.99, mid + hair),
+    spreadBps: 800,
+  };
+}
+
 function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
   if (!m.id) return null;
   if (!allowSettled && (m.closed || m.active === false)) return null;
@@ -199,11 +213,8 @@ function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
   const vol = Number(m.volume24hr ?? m.volume ?? 0);
   const liq = Number(m.liquidity ?? 0);
   if (!allowSettled && vol < 20_000 && liq < 10_000) return null;
-  const bid = Number(m.bestBid);
-  const ask = Number(m.bestAsk);
-  let spreadBps: number | undefined;
-  if (bid > 0 && ask > bid) spreadBps = ((ask - bid) / ((ask + bid) / 2)) * 10_000;
   const px = Math.min(0.999, Math.max(0.001, yes || (allowSettled ? 0.001 : 0)));
+  const book = gammaBook(m, px);
   return {
     id: `poly:${m.id}`,
     symbol: polyTicker(m.slug || "", m.question || ""),
@@ -214,7 +225,9 @@ function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
     volume: vol || liq,
     spark: [px],
     live: true,
-    spreadBps,
+    spreadBps: book.spreadBps,
+    bid: book.bid,
+    ask: book.ask,
   };
 }
 
@@ -421,17 +434,14 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const fine = tape && tape.fine.length >= 8 ? tape.fine : tape?.rows;
         const spark = tape && open ? windowCloses(fine || tape.rows, w.windowStart, open, spot) : [spot || upPx];
         const vol = Number(m.volume24hr ?? m.volume ?? 0);
-        const bid = Number(m.bestBid);
-        const ask = Number(m.bestAsk);
-        let spreadBps: number | undefined;
-        if (bid > 0 && ask > bid) spreadBps = ((ask - bid) / ((ask + bid) / 2)) * 10_000;
+        const upBook = gammaBook(m, upPx);
+        const downBook = { bid: Math.max(0.01, 1 - upBook.ask), ask: Math.min(0.99, 1 - upBook.bid), spreadBps: upBook.spreadBps };
         const upId = `poly:${m.id}:up`;
         const downId = `poly:${m.id}:down`;
         const base = {
           kind: "poly" as const,
           live: true,
           volume: vol,
-          spreadBps,
           fair,
           windowStart: w.windowStart,
           windowEnd: w.windowEnd,
@@ -451,6 +461,9 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
           changePct: delta,
           pairId: downId,
           leg: "up",
+          spreadBps: upBook.spreadBps,
+          bid: upBook.bid,
+          ask: upBook.ask,
         });
         out.push({
           ...base,
@@ -461,6 +474,9 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
           changePct: -delta,
           pairId: upId,
           leg: "down",
+          spreadBps: downBook.spreadBps,
+          bid: downBook.bid,
+          ask: downBook.ask,
         });
       } catch {
         /* skip this window */

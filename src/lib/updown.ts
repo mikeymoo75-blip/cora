@@ -142,13 +142,14 @@ export function updownExplain(
   other?: Position,
 ): { action: "buy" | "sell" | "hold"; why: string } {
   const last = quote.price;
+  const pay = quote.ask && quote.ask > 0 ? quote.ask : last;
   const now = Date.now();
   const tau = quote.windowEnd ? (quote.windowEnd - now) / 1000 : 0;
   const elapsed = quote.windowStart ? (now - quote.windowStart) / 1000 : 0;
   const total = quote.horizon === "15m" ? 900 : 300;
   const fair = quote.fair ?? 0.5;
   const thisFair = quote.leg === "down" ? 1 - fair : fair;
-  const edge = thisFair - last;
+  const edge = thisFair - pay;
 
   if (pos) {
     if (!last || last <= 0) return { action: "sell", why: "Odds print died — getting out." };
@@ -182,20 +183,27 @@ export function updownExplain(
   if (tau < 15) {
     return { action: "hold", why: `Last ${Math.ceil(tau)}s — no new tickets. Open bags hold to settle.` };
   }
-  if (last < 0.08 || last > 0.92) {
-    return { action: "hold", why: `Book already at ${Math.round(last * 100)}¢ — no misprice left.` };
+  if (pay < 0.08 || pay > 0.92) {
+    return { action: "hold", why: `Ask already at ${Math.round(pay * 100)}¢ — no misprice left.` };
+  }
+  const width = (quote.ask || last) - (quote.bid || last);
+  if (width > 0.06) {
+    return { action: "hold", why: `Book is ${Math.round(width * 100)}¢ wide — wouldn't lift that live.` };
+  }
+  if (quote.ask && last && quote.ask - last > 0.08) {
+    return { action: "hold", why: `Ask ${Math.round(quote.ask * 100)}¢ vs mid ${Math.round(last * 100)}¢ — print is stale.` };
   }
   const minEdge = other ? 0.04 : 0.06;
   if (edge < minEdge) {
     return {
       action: "hold",
-      why: `No edge. Fair ${Math.round(thisFair * 100)}¢ vs book ${Math.round(last * 100)}¢ (${(edge * 100).toFixed(1)}¢). Needs +${Math.round(minEdge * 100)}¢.`,
+      why: `No edge. Fair ${Math.round(thisFair * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (${(edge * 100).toFixed(1)}¢). Needs +${Math.round(minEdge * 100)}¢.`,
     };
   }
   const spotDelta = ((quote.spot - quote.openPx) / quote.openPx) * 100;
   const hedge = other ? "Hedge: " : "";
   return {
     action: "buy",
-    why: `${hedge}${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: fair ${Math.round(thisFair * 100)}¢ vs book ${Math.round(last * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
+    why: `${hedge}${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: fair ${Math.round(thisFair * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
   };
 }
