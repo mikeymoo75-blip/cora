@@ -810,8 +810,8 @@ function bagHorizon(p: Position, q?: Quote): "5m" | "15m" | undefined {
 
 function bagLeg(p: Position, q?: Quote): "up" | "down" | "" {
   const s = `${q?.symbol || ""} ${p.symbol} ${p.leg || ""} ${q?.leg || ""}`.toLowerCase();
-  if (s.includes("-dn") || s.includes(":down") || s.includes(" down")) return "down";
-  if (s.includes("-up") || s.includes(":up") || s.includes(" up")) return "up";
+  if (/[-_]dn\b/.test(s) || s.includes(":down") || s.includes(" down") || /15m_dn|5m_dn/.test(s)) return "down";
+  if (/[-_]up\b/.test(s) || s.includes(":up") || s.includes(" up")) return "up";
   if (p.leg === "up" || p.leg === "down") return p.leg;
   if (q?.leg === "up" || q?.leg === "down") return q.leg;
   return "";
@@ -831,26 +831,26 @@ function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; op
       open: p.lastOpen || 0,
     };
   }
-  const spot = q?.spot || p.lastSpot || 0;
-  const open = q?.openPx || p.lastOpen || 0;
-  if (spot > 0 && open > 0) return { spot, open };
-  const asset = p.asset || q?.asset;
+  const ok = (spot: number, open: number) => spot > 0 && open > 0;
+  if (ok(q?.spot || 0, q?.openPx || 0)) return { spot: q!.spot || 0, open: q!.openPx || 0 };
+  if (ok(p.lastSpot || 0, p.lastOpen || 0)) return { spot: p.lastSpot || 0, open: p.lastOpen || 0 };
+  const asset = (p.asset || q?.asset || "").toUpperCase();
   const horizon = p.horizon || q?.horizon;
-  const start = p.windowStart || q?.windowStart;
-  if (asset && horizon && start) {
+  if (asset && horizon) {
     for (const x of Object.values(desk.quotes)) {
-      if (
-        x.asset === asset &&
-        x.horizon === horizon &&
-        x.windowStart === start &&
-        (x.spot || 0) > 0 &&
-        (x.openPx || 0) > 0
-      ) {
+      if ((x.asset || "").toUpperCase() !== asset || x.horizon !== horizon) continue;
+      if (!ok(x.spot || 0, x.openPx || 0)) continue;
+      if (isCurrentRound(x) || (p.windowStart && x.windowStart === p.windowStart)) {
+        return { spot: x.spot || 0, open: x.openPx || 0 };
+      }
+    }
+    for (const x of Object.values(desk.quotes)) {
+      if ((x.asset || "").toUpperCase() === asset && x.horizon === horizon && ok(x.spot || 0, x.openPx || 0)) {
         return { spot: x.spot || 0, open: x.openPx || 0 };
       }
     }
   }
-  return { spot, open };
+  return { spot: 0, open: 0 };
 }
 
 function HomePane({
@@ -979,10 +979,10 @@ function HomePane({
               const spot = race.spot;
               const openPx = race.open;
               const leg = bagLeg(p, q);
-              let hit =
-                p.settleSide && (leg === "up" || leg === "down")
-                  ? (leg === "down" ? p.settleSide === "down" : p.settleSide === "up")
-                  : sideWon(leg, spot, openPx);
+              let hit = sideWon(leg, spot, openPx);
+              if (settling && p.settleSide && (leg === "up" || leg === "down")) {
+                hit = leg === "down" ? p.settleSide === "down" : p.settleSide === "up";
+              }
               if (settling) {
                 const frozen = settleFreeze.current[p.symbol];
                 if (frozen) {
@@ -1026,6 +1026,11 @@ function HomePane({
                       <p className="text-xs text-muted">
                         {kindLabel(p.kind)}
                         {horizon ? ` · ${horizon}` : ""}
+                        {spot > 0 && openPx > 0
+                          ? spot < openPx
+                            ? " · coin below open"
+                            : " · coin above open"
+                          : ""}
                       </p>
                     </div>
                     <p className={cn("font-mono text-lg font-semibold tabular-nums", signedClass(mtm))}>
