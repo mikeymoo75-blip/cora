@@ -1012,13 +1012,13 @@ function HomePane({
                     fresh && "bag-new",
                   )}
                 >
-                  {(settleWin || winning) && (
+                  {settleWin && (
                     <span className="bag-winner-banner">
                       WINNER
                       <span className="bag-banner-amt">{signedMoney(mtm)}</span>
                     </span>
                   )}
-                  {(settleLose || liveLose) && (
+                  {settleLose && (
                     <span className="bag-loser-banner">
                       LOSER
                       <span className="bag-banner-amt">{signedMoney(mtm)}</span>
