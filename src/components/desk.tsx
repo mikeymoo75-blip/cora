@@ -15,7 +15,7 @@ import {
 import { toast, Toaster } from "sonner";
 import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
-import { isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
+import { fmtHour, isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
@@ -24,6 +24,7 @@ import type {
   DeskReport,
   DeskSnapshot,
   Fill,
+  HourClock,
   MarketKind,
   Position,
   Quote,
@@ -1131,6 +1132,8 @@ function HomePane({
         )}
       </section>
 
+      <HourClockCard clock={desk.hourClock || []} />
+
       <section>
         <div className="mb-3 flex items-end justify-between">
           <h2 className="font-display text-2xl font-semibold">Latest fills</h2>
@@ -1188,6 +1191,51 @@ function HomePane({
         )}
       </section>
     </div>
+  );
+}
+
+function HourClockCard({ clock }: { clock: HourClock[] }) {
+  const buckets: { start: number; sells: number; wins: number; net: number }[] = [];
+  for (let h = 0; h < 24; h += 2) {
+    const a = clock.find((r) => r.hour === h);
+    const b = clock.find((r) => r.hour === h + 1);
+    const sells = (a?.sells || 0) + (b?.sells || 0);
+    if (!sells) continue;
+    buckets.push({
+      start: h,
+      sells,
+      wins: (a?.wins || 0) + (b?.wins || 0),
+      net: (a?.net || 0) + (b?.net || 0),
+    });
+  }
+  return (
+    <section>
+      <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
+      <p className="mb-3 text-sm text-muted">
+        Wins and losses by two-hour window. Survives a new test. After 8 sells in a window that does not pay, paper skips new tickets there.
+      </p>
+      {buckets.length === 0 ? (
+        <p className="text-sm text-muted">No cashed 5m/15m trades in the clock yet.</p>
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {buckets.map((b) => {
+            const wr = b.wins / b.sells;
+            const cold = b.sells >= 8 && b.net < 0 && wr < 0.45;
+            return (
+              <li key={b.start} className="rounded-2xl bg-surface px-4 py-3 shadow-[var(--shadow-card)]">
+                <p className="text-sm font-semibold">
+                  {fmtHour(b.start)}–{fmtHour(b.start + 2)} ET
+                  {cold ? " · skip" : ""}
+                </p>
+                <p className={cn("mt-1 font-mono text-sm", signedClass(b.net))}>
+                  {b.wins}/{b.sells} wins · {signedMoney(b.net)}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

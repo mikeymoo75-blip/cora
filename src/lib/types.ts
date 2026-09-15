@@ -239,6 +239,15 @@ export type TestRun = {
   trades: number;
 };
 
+export type HourClock = {
+  /** 0–23 America/New_York */
+  hour: number;
+  sells: number;
+  wins: number;
+  losses: number;
+  net: number;
+};
+
 export type DeskState = {
   cash: number;
   startingCash: number;
@@ -265,6 +274,8 @@ export type DeskState = {
   wallets: Record<WalletId, Wallet>;
   reports: DeskReport[];
   scanTape: ScanNote[];
+  /** Wins/losses by Eastern hour. Survives New $1,000 test. */
+  hourClock: HourClock[];
 };
 
 export type DeskSnapshot = DeskState & {

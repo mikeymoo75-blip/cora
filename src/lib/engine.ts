@@ -17,6 +17,7 @@ import type {
   DeskState,
   DeskStats,
   Fill,
+  HourClock,
   MarketKind,
   Position,
   Quote,
@@ -133,6 +134,7 @@ export function ensureWallets(state: DeskState): DeskState {
       quotes,
       reports: state.reports || [],
       scanTape: state.scanTape || [],
+      hourClock: state.hourClock || [],
     };
   } else {
     const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
@@ -550,6 +552,7 @@ export function applyFill(
     positions,
     manualLocks,
     fills: [fill, ...s0.fills].slice(0, 400),
+    hourClock: stampHourClock(s0, fill),
   };
 }
 
@@ -1281,7 +1284,8 @@ export function tickBots(state: DeskState): DeskState {
 
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
-    if (bot.strategy === "sniper") {
+    const cold = bot.strategy === "sniper" ? hourWindowSkip(next.hourClock) : "";
+    if (bot.strategy === "sniper" && !cold) {
       const locks = pairLocks(Object.values(next.quotes));
       for (const pair of locks) {
         const legs = [pair.a, pair.b];
@@ -1350,6 +1354,10 @@ export function tickBots(state: DeskState): DeskState {
     let newDirectional = 0;
     for (const quote of ranked.slice(0, 60)) {
       if (next.positions[quote.id]) continue;
+      if (cold && quote.horizon) {
+        pass.push(scanNote(bot, quote, "skip", cold));
+        break;
+      }
       if (fillDelay) {
         pass.push(scanNote(bot, quote, "skip", `Filled-order delay: wait ${fillDelay}s after the last fill.`));
         break;
@@ -1802,4 +1810,67 @@ export function todayStamp(at = Date.now()): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(at));
+}
+
+export function etHour(at = Date.now()): number {
+  const raw = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hour12: false,
+  }).format(new Date(at));
+  const n = parseInt(raw, 10);
+  if (n === 24) return 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function hourBucket(hour: number): number {
+  return Math.floor(hour / 2) * 2;
+}
+
+export function clockFromFills(fills: Fill[]): HourClock[] {
+  let clock: HourClock[] = [];
+  for (const f of [...fills].reverse()) {
+    clock = stampHourClock({ hourClock: clock } as DeskState, f);
+  }
+  return clock;
+}
+
+export function stampHourClock(state: DeskState, fill: Fill): HourClock[] {
+  const clock = [...(state.hourClock || [])];
+  if (fill.kind !== "poly" || fill.side !== "sell") return clock;
+  const hour = etHour(fill.ts);
+  const i = clock.findIndex((r) => r.hour === hour);
+  const win = (fill.realizedPnl || 0) > 0;
+  const row: HourClock = i >= 0 ? { ...clock[i]! } : { hour, sells: 0, wins: 0, losses: 0, net: 0 };
+  row.sells += 1;
+  if (win) row.wins += 1;
+  else row.losses += 1;
+  row.net += fill.realizedPnl || 0;
+  if (i >= 0) clock[i] = row;
+  else clock.push(row);
+  return clock.sort((a, b) => a.hour - b.hour);
+}
+
+/** 2-hour ET window with enough paper: skip new tickets if it does not pay. */
+export function hourWindowSkip(clock: HourClock[] | undefined, at = Date.now()): string {
+  const rows = clock || [];
+  const start = hourBucket(etHour(at));
+  const a = rows.find((r) => r.hour === start);
+  const b = rows.find((r) => r.hour === start + 1);
+  const sells = (a?.sells || 0) + (b?.sells || 0);
+  const wins = (a?.wins || 0) + (b?.wins || 0);
+  const net = (a?.net || 0) + (b?.net || 0);
+  if (sells < 8) return "";
+  const wr = wins / sells;
+  if (net < 0 && wr < 0.45) {
+    return `${fmtHour(start)}–${fmtHour(start + 2)} ET is cold (${wins}/${sells} wins, ${net >= 0 ? "+" : ""}${net.toFixed(0)}). No new tickets this window.`;
+  }
+  return "";
+}
+
+export function fmtHour(h: number): string {
+  const hr = ((h % 24) + 24) % 24;
+  const am = hr < 12;
+  const n = hr % 12 || 12;
+  return `${n}${am ? "a" : "p"}`;
 }

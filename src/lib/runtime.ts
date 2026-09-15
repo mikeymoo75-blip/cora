@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, clockFromFills, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { riskView } from "./risk";
 import { fetchMarketSnapshot, fetchUpDownRounds, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
 import { ensureTwapStream } from "./twap";
@@ -168,6 +168,7 @@ function blank(): DeskState {
     wallets: blankWallets(),
     reports: [],
     scanTape: [],
+    hourClock: [],
   };
 }
 
@@ -276,6 +277,7 @@ function load(): DeskState {
       fills,
       positions,
       reports: parsed.reports || [],
+      hourClock: parsed.hourClock?.length ? parsed.hourClock : clockFromFills(fills),
     });
   } catch {
     return blank();
@@ -819,6 +821,7 @@ export function resetBook(name?: string) {
   next.copyFetchedAt = s.copyFetchedAt;
   next.tests = tests.slice(0, 40);
   next.reports = s.reports || [];
+  next.hourClock = s.hourClock || [];
   next.runStartedAt = Date.now();
   next.positions = {};
   next.fills = [];

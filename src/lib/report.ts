@@ -1,4 +1,4 @@
-import { sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
+import { fmtHour, sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
 import { money, pct, signedMoney } from "./format";
 import { copyQualityGate, riskView } from "./risk";
 import type { DeskReport, DeskState } from "./types";
@@ -79,6 +79,22 @@ export function buildReport(state: DeskState): DeskReport {
   }
   lines.push(`  Peak equity ${money(risk.peakEquity)}  drawdown ${risk.drawdownPct.toFixed(1)}%`);
   lines.push(`  Ticket size now ${Math.round(risk.sizeMult * 100)}% of base. ${risk.sizeWhy}`);
+  const clock = state.hourClock || [];
+  if (clock.some((r) => r.sells > 0)) {
+    lines.push("CLOCK (ET, 2-hour windows — survives reset. Cold windows skip new tickets after 8 sells.)");
+    for (let h = 0; h < 24; h += 2) {
+      const a = clock.find((r) => r.hour === h);
+      const b = clock.find((r) => r.hour === h + 1);
+      const sells = (a?.sells || 0) + (b?.sells || 0);
+      if (!sells) continue;
+      const wins = (a?.wins || 0) + (b?.wins || 0);
+      const net = (a?.net || 0) + (b?.net || 0);
+      const cold = sells >= 8 && net < 0 && wins / sells < 0.45;
+      lines.push(
+        `  ${fmtHour(h)}–${fmtHour(h + 2)}  ${wins}/${sells} wins  ${signedMoney(net)}${cold ? "  SKIP" : ""}`,
+      );
+    }
+  }
   const copyQ = state.bots.filter((b) => b.strategy === "copy" && b.enabled).map((b) => copyQualityGate(b, state.fills));
   if (copyQ.length) {
     lines.push("  SMART MONEY (copy bots — 55%+ wins, PF 1.3+, no one-hit wonders)");
