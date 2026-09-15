@@ -1017,10 +1017,16 @@ function HomePane({
                   )}
                 >
                   {settleWin && (
-                    <span className="bag-winner-banner">WINNER</span>
+                    <span className="bag-winner-banner">
+                      WINNER
+                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
+                    </span>
                   )}
                   {settleLose && (
-                    <span className="bag-loser-banner">LOSER</span>
+                    <span className="bag-loser-banner">
+                      LOSER
+                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
+                    </span>
                   )}
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1044,10 +1050,16 @@ function HomePane({
                           {horizon ? ` · ${horizon}` : ""}
                         </p>
                       )}
-                      <p className="mt-1 font-mono text-xs text-muted">
-                        Book {signedMoney(mtm)}
+                      <p
+                        className={cn(
+                          "mt-1 font-mono font-semibold tabular-nums",
+                          settling ? "text-base" : "text-xs",
+                          raceWith ? "text-primary" : raceAgainst ? "text-down" : "text-muted",
+                        )}
+                      >
+                        {settling ? (raceWith ? "Won " : raceAgainst ? "Lost " : "Book ") : "Book "}
+                        {signedMoney(mtm)}
                         {settling ? " frozen" : " if sold now"}
-                        {" · not cash until 0/1"}
                       </p>
                     </div>
                   </div>
