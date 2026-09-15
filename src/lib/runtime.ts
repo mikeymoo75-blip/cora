@@ -78,7 +78,7 @@ function defaultBots(): Bot[] {
     {
       id: "bot-scan-poly",
       name: "Scan Polymarket · 5m/15m",
-      enabled: true,
+      enabled: false,
       symbol: "poly:fed",
       kind: "poly",
       strategy: "sniper",
@@ -87,7 +87,7 @@ function defaultBots(): Bot[] {
       maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
-      lastReason: "",
+      lastReason: "CLOB paper tests lost (PF 0.67, then 0.27). Off until the model is actually the venue.",
     },
     {
       id: "bot-scan-poly-fade",
@@ -331,9 +331,17 @@ function fitBotsToBank(state: DeskState): DeskState {
           lastReason: "Pump.fun retired — use the Polymarket bots.",
         };
       }
-      if (f && b.id === "bot-scan-poly" && (b.name !== f.name || b.sizeUsd !== f.sizeUsd || b.maxNames !== f.maxNames || b.lockedUntil)) {
+      if (f && b.id === "bot-scan-poly" && b.enabled) {
         changed = true;
-        return { ...b, name: f.name, sizeUsd: f.sizeUsd, maxNames: f.maxNames, lockedUntil: undefined };
+        return {
+          ...b,
+          enabled: false,
+          name: f.name,
+          sizeUsd: f.sizeUsd,
+          maxNames: f.maxNames,
+          lockedUntil: undefined,
+          lastReason: "CLOB paper tests lost. Turned off — do not run this overnight.",
+        };
       }
       if (f && (b.sizeUsd > f.sizeUsd || b.maxNames > f.maxNames)) {
         changed = true;
@@ -728,18 +736,16 @@ export function resetBook(name?: string) {
   const next = blank();
   next.quotes = s.quotes;
   next.liveQuotes = s.liveQuotes;
-  next.bots = s.bots.map((b) => {
-    const polySniper = b.id === "bot-scan-poly";
-    return {
-      ...b,
-      enabled: polySniper,
-      lastSignal: polySniper ? "idle" : b.lastSignal,
-      lastTickAt: 0,
-      lastReason: polySniper
-        ? "New test — 5m/15m only. Waiting for the next signal."
+  next.bots = s.bots.map((b) => ({
+    ...b,
+    enabled: false,
+    lastSignal: b.lastSignal,
+    lastTickAt: 0,
+    lastReason:
+      b.id === "bot-scan-poly"
+        ? "CLOB paper tests lost. Leave this off unless you are running a named experiment."
         : b.lastReason,
-    };
-  });
+  }));
   next.copyEvents = s.copyEvents.map((e) => ({ ...e, consumed: false }));
   next.copyFetchedAt = s.copyFetchedAt;
   next.selectedId = s.selectedId;
