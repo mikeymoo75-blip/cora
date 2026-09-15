@@ -101,8 +101,8 @@ export function sizeMultiplier(input: {
   if (input.consecutiveLosses > RISK.streakReduceAfter) {
     streak = Math.pow(1 - RISK.lossSizingReduction, input.consecutiveLosses - RISK.streakReduceAfter);
     bits.push(`${input.consecutiveLosses} losses in a row → tickets ×${streak.toFixed(2)}`);
-  } else if (input.consecutiveWins > 0) {
-    streak = Math.min(1.5, Math.pow(1 + RISK.winSizingIncrease, input.consecutiveWins));
+  } else if (input.consecutiveWins >= 3) {
+    streak = Math.min(1.2, Math.pow(1 + RISK.winSizingIncrease, input.consecutiveWins - 2));
     if (streak > 1.02) bits.push(`${input.consecutiveWins} wins in a row → tickets ×${streak.toFixed(2)}`);
   }
 

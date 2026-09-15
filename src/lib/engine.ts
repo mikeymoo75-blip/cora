@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { corridorPairs, isCurrentRound, pairLocks, updownExplain, windowBounds } from "./updown";
+import { isCurrentRound, pairLocks, updownExplain, windowBounds } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -1256,7 +1256,7 @@ export function tickBots(state: DeskState): DeskState {
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
     if (bot.strategy === "sniper") {
-      const locks = [...pairLocks(Object.values(next.quotes)), ...corridorPairs(Object.values(next.quotes))];
+      const locks = pairLocks(Object.values(next.quotes));
       for (const pair of locks) {
         const legs = [pair.a, pair.b];
         const missing = legs.filter((q) => !next.positions[q.id]);

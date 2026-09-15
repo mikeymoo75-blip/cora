@@ -233,7 +233,10 @@ export function updownExplain(
     return { action: "hold", why: "Not the live window — leftover or next round. No new tickets." };
   }
   if (elapsed < 0) return { action: "hold", why: "Next round is not open yet." };
-  if (elapsed < 15) return { action: "hold", why: "First 15s of the round — book is noisy." };
+  const warm = quote.horizon === "15m" ? 120 : 40;
+  if (elapsed < warm) {
+    return { action: "hold", why: `First ${warm}s of the round — book is noisy.` };
+  }
   if (tau <= 0) return { action: "hold", why: "Window is closed — no new tickets." };
   if (tau < 90) {
     return { action: "hold", why: `Last ${Math.ceil(tau)}s — no new tickets. Open bags hold to venue resolve.` };
@@ -274,46 +277,28 @@ export function updownExplain(
     };
   }
   const spotDelta = ((quote.spot - quote.openPx) / quote.openPx) * 100;
+  const needMove = quote.horizon === "15m" ? 0.06 : 0.04;
+  if (Math.abs(spotDelta) < needMove) {
+    return {
+      action: "hold",
+      why: `Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open is noise. Needs ${needMove.toFixed(2)}%.`,
+    };
+  }
+  if (quote.leg === "up" && spotDelta < 0) {
+    return { action: "hold", why: "UP ticket but coin is below Price-to-Beat. Not fading." };
+  }
+  if (quote.leg === "down" && spotDelta > 0) {
+    return { action: "hold", why: "DN ticket but coin is above Price-to-Beat. Not fading." };
+  }
   return {
     action: "buy",
     why: `${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: TWAP fair ${Math.round(blended * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
   };
 }
 
-/** 5m and 15m share a close in the last 5 minutes. One pair always pays ≥ $1. */
-export function corridorPairs(quotes: Quote[]): { a: Quote; b: Quote; cost: number; why: string }[] {
-  const by = new Map<string, Quote>();
-  for (const q of quotes) {
-    if (!q.horizon || !q.asset || !q.leg || !(q.ask && q.ask > 0)) continue;
-    by.set(`${q.asset}-${q.horizon}-${q.leg}`, q);
-  }
-  const assets = [...new Set(quotes.map((q) => q.asset).filter((a): a is string => !!a))];
-  const out: { a: Quote; b: Quote; cost: number; why: string }[] = [];
-  for (const asset of assets) {
-    const u5 = by.get(`${asset}-5m-up`);
-    const d5 = by.get(`${asset}-5m-down`);
-    const u15 = by.get(`${asset}-15m-up`);
-    const d15 = by.get(`${asset}-15m-down`);
-    if (!u5 || !d5 || !u15 || !d15) continue;
-    if (Math.abs((u5.windowEnd || 0) - (u15.windowEnd || 0)) > 2000) continue;
-    const o5 = u5.openPx || 0;
-    const o15 = u15.openPx || 0;
-    if (!(o5 > 0 && o15 > 0)) continue;
-    const a = o15 >= o5 ? u5 : d5;
-    const b = o15 >= o5 ? d15 : u15;
-    const cost = (a.ask || 0) + (b.ask || 0);
-    if (cost <= 0 || cost > 0.93) continue;
-    if ((a.askSize || 0) < 8 || (b.askSize || 0) < 8) continue;
-    const tau = Math.max(0, ((a.windowEnd || 0) - Date.now()) / 1000);
-    if (tau < 25) continue;
-    out.push({
-      a,
-      b,
-      cost,
-      why: `Corridor lock ${asset}: 5m ${a.leg?.toUpperCase()} ${Math.round((a.ask || 0) * 100)}¢ + 15m ${b.leg?.toUpperCase()} ${Math.round((b.ask || 0) * 100)}¢ = ${Math.round(cost * 100)}¢ vs $1 min payout. Same close. Opens ${o5.toFixed(2)} / ${o15.toFixed(2)}.`,
-    });
-  }
-  return out.sort((x, y) => x.cost - y.cost);
+/** 5m vs 15m different opens is not a $1 lock. Disabled — tape showed one-leg leftovers. */
+export function corridorPairs(_quotes: Quote[]): { a: Quote; b: Quote; cost: number; why: string }[] {
+  return [];
 }
 
 /**
@@ -335,8 +320,11 @@ export function pairLocks(quotes: Quote[]): { a: Quote; b: Quote; cost: number; 
     const down = by.get(`${key}-down`);
     if (!up || !down) continue;
     if (Math.abs((up.windowEnd || 0) - (down.windowEnd || 0)) > 2000) continue;
-    const cost = (up.ask || 0) + (down.ask || 0);
+    const upAsk = up.ask || 0;
+    const dnAsk = down.ask || 0;
+    const cost = upAsk + dnAsk;
     if (cost <= 0 || cost > 0.9) continue;
+    if (upAsk < 0.2 || dnAsk < 0.2 || upAsk > 0.75 || dnAsk > 0.75) continue;
     if ((up.askSize || 0) < 8 || (down.askSize || 0) < 8) continue;
     const tau = Math.max(0, ((up.windowEnd || 0) - Date.now()) / 1000);
     if (tau < 25) continue;
