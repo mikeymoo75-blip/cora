@@ -1563,6 +1563,15 @@ export function tickHeldExits(state: DeskState): DeskState {
     const stamped = next.positions[pos.symbol]!;
     const liveSpot = !windowOver && quote.spot && quote.spot > 0 ? quote.spot : 0;
     const liveOpen = !windowOver && quote.openPx && quote.openPx > 0 ? quote.openPx : 0;
+    const frozenSpot = windowOver ? stamped.lastSpot : liveSpot || stamped.lastSpot;
+    const frozenOpen = windowOver ? stamped.lastOpen : liveOpen || stamped.lastOpen;
+    const settleSide =
+      stamped.settleSide ||
+      (windowOver && frozenSpot && frozenOpen
+        ? frozenSpot >= frozenOpen
+          ? "up"
+          : "down"
+        : undefined);
     next = {
       ...next,
       positions: {
@@ -1576,8 +1585,9 @@ export function tickHeldExits(state: DeskState): DeskState {
           asset: stamped.asset || quote.asset,
           leg: stamped.leg || quote.leg,
           lastMark: windowOver ? stamped.lastMark || last : last,
-          lastSpot: windowOver ? stamped.lastSpot : liveSpot || stamped.lastSpot,
-          lastOpen: windowOver ? stamped.lastOpen : liveOpen || stamped.lastOpen,
+          lastSpot: frozenSpot,
+          lastOpen: frozenOpen,
+          settleSide,
           closedMark: stamped.closedMark || (windowOver ? stamped.lastMark || last : undefined),
         },
       },

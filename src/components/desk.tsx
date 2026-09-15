@@ -776,12 +776,19 @@ function bagHorizon(p: Position, q?: Quote): "5m" | "15m" | undefined {
 }
 
 function bagLeg(p: Position, q?: Quote): "up" | "down" | "" {
+  const s = `${q?.symbol || ""} ${p.symbol} ${p.leg || ""} ${q?.leg || ""}`.toLowerCase();
+  if (s.includes("-dn") || s.includes(":down") || s.includes(" down")) return "down";
+  if (s.includes("-up") || s.includes(":up") || s.includes(" up")) return "up";
   if (p.leg === "up" || p.leg === "down") return p.leg;
   if (q?.leg === "up" || q?.leg === "down") return q.leg;
-  const s = `${q?.symbol || ""} ${p.symbol}`.toLowerCase();
-  if (s.includes(":down") || s.includes("-dn") || s.endsWith(" down")) return "down";
-  if (s.includes(":up") || s.includes("-up") || s.endsWith(" up")) return "up";
   return "";
+}
+
+function bagSettledUp(p: Position, spot: number, open: number): boolean | null {
+  if (p.settleSide === "up") return true;
+  if (p.settleSide === "down") return false;
+  if (spot > 0 && open > 0) return spot >= open;
+  return null;
 }
 
 function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; open: number } {
@@ -933,12 +940,14 @@ function HomePane({
               const race = bagRace(desk, p, q);
               const spot = race.spot;
               const openPx = race.open;
-              const coinUp = spot > 0 && openPx > 0 && spot >= openPx;
-              const coinDown = spot > 0 && openPx > 0 && spot < openPx;
+              const settledUp = bagSettledUp(p, spot, openPx);
+              const coinUp = settledUp === true;
+              const coinDown = settledUp === false;
               const leg = bagLeg(p, q);
               const sideHit = (leg === "down" && coinDown) || (leg === "up" && coinUp);
+              const dnLostToUp = leg === "down" && coinUp;
               const winning = sideHit && !settling;
-              const settleWin = settling && sideHit;
+              const settleWin = settling && sideHit && !dnLostToUp;
               const settleLose = settling && (coinUp || coinDown) && !sideHit;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);

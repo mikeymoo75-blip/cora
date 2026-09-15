@@ -53,6 +53,8 @@ export type Position = {
   lastMark?: number;
   lastSpot?: number;
   lastOpen?: number;
+  /** Coin side at 0:00 vs Price-to-Beat. Frozen. */
+  settleSide?: "up" | "down";
   /** Frozen at 0:00 until venue 0/1. */
   closedMark?: number;
 };
