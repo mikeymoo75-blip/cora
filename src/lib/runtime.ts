@@ -306,6 +306,7 @@ function save(state: DeskState) {
 
 type G = typeof globalThis & {
   __coraDesk?: DeskState;
+  __coraDeskGen?: number;
   __coraLoop?: ReturnType<typeof setInterval>;
   __coraPumpLoop?: ReturnType<typeof setInterval>;
   __coraPolyLoop?: ReturnType<typeof setInterval>;
@@ -406,6 +407,22 @@ export function getState(): DeskState {
 function setState(next: DeskState) {
   g().__coraDesk = next;
   save(next);
+}
+
+function deskGen(): number {
+  return g().__coraDeskGen ?? 0;
+}
+
+function bumpDeskGen(): number {
+  const n = deskGen() + 1;
+  g().__coraDeskGen = n;
+  return n;
+}
+
+function commitState(next: DeskState, started: number): boolean {
+  if (deskGen() !== started) return false;
+  setState(next);
+  return true;
 }
 
 export function snapshot(): DeskSnapshot {
@@ -535,6 +552,7 @@ async function refreshCopy(force = false) {
 
 export async function tickOnce(): Promise<DeskSnapshot> {
   ensureTwapStream();
+  const started = deskGen();
   let s = getState();
   try {
     const snap = await fetchMarketSnapshot();
@@ -578,57 +596,63 @@ export async function tickOnce(): Promise<DeskSnapshot> {
         },
       };
     }
-    setState(s);
+    if (!commitState(s, started)) return snapshot();
     await refreshCopy();
+    if (deskGen() !== started) return snapshot();
     s = tickBots(getState());
     s = { ...s, loopAt: Date.now(), loopOk: true };
-    setState(s);
+    commitState(s, started);
   } catch (err) {
     console.error("[cora] tick failed", err);
-    setState({ ...getState(), loopAt: Date.now(), loopOk: false });
+    commitState({ ...getState(), loopAt: Date.now(), loopOk: false }, started);
   }
   return snapshot();
 }
 
 export async function tickHeldExitsLoop(): Promise<void> {
+  const started = deskGen();
   const s = getState();
   const held = Object.values(s.positions).map((p) => ({ id: p.symbol, kind: p.kind }));
   if (!held.length) return;
   try {
     const fresh = await refreshHeldAll(held);
+    if (deskGen() !== started) return;
     const merged = mergeQuotes(s.quotes, fresh);
     const quotes: DeskState["quotes"] = {};
     for (const q of overlayLivePoly(merged)) quotes[q.id] = q;
     let next = { ...s, quotes };
     next = tickHeldExits(next);
     next = { ...next, loopAt: Date.now(), loopOk: true };
-    setState(next);
+    commitState(next, started);
   } catch (err) {
     console.error("[cora] hold-exit tick failed", err);
   }
 }
 
 export async function refreshUpDownLoop(): Promise<void> {
+  const started = deskGen();
   try {
     const rounds = await fetchUpDownRounds();
     if (!rounds.length) return;
     const s = getState();
+    if (deskGen() !== started) return;
     const quotes: DeskState["quotes"] = {};
     for (const q of overlayLivePoly(mergeQuotes(s.quotes, rounds))) quotes[q.id] = q;
-    setState({ ...s, quotes, loopAt: Date.now(), loopOk: true });
+    commitState({ ...s, quotes, loopAt: Date.now(), loopOk: true }, started);
   } catch (err) {
     console.error("[cora] updown refresh failed", err);
   }
 }
 
 export function tickPolyFast(): void {
+  const started = deskGen();
   const s = getState();
   const quotes: DeskState["quotes"] = {};
   for (const q of overlayLivePoly(s.quotes)) quotes[q.id] = q;
   let next = { ...s, quotes };
   next = tickHeldExits(next);
   next = tickBots(next);
-  setState({ ...next, loopAt: Date.now(), loopOk: true });
+  commitState({ ...next, loopAt: Date.now(), loopOk: true }, started);
 }
 
 export function startDeskLoop() {
@@ -774,6 +798,7 @@ export function resetBook(name?: string) {
       trades: s.fills.length,
     });
   }
+  bumpDeskGen();
   const next = blank();
   next.quotes = s.quotes;
   next.liveQuotes = s.liveQuotes;
@@ -782,18 +807,30 @@ export function resetBook(name?: string) {
     return {
       ...b,
       enabled: polySniper,
-      lastSignal: polySniper ? "idle" : b.lastSignal,
+      lastSignal: "idle",
       lastTickAt: 0,
+      lastScan: [],
       lastReason: polySniper
-        ? "New test — favorite-side 5m/15m. CLOB ask 50–80¢, TWAP fair."
-        : b.lastReason,
+        ? "New test — $500 / $500. Favorite-side 5m/15m."
+        : "Off for this test.",
     };
   });
-  next.copyEvents = s.copyEvents.map((e) => ({ ...e, consumed: false }));
+  next.copyEvents = (s.copyEvents || []).map((e) => ({ ...e, consumed: true }));
   next.copyFetchedAt = s.copyFetchedAt;
-  next.selectedId = s.selectedId;
   next.tests = tests.slice(0, 40);
+  next.reports = s.reports || [];
   next.runStartedAt = Date.now();
+  next.positions = {};
+  next.fills = [];
+  next.scanTape = [];
+  next.manualLocks = {};
+  next.wallets = blankWallets();
+  next.cash = STARTING;
+  next.startingCash = STARTING;
+  next.dayStartEquity = STARTING;
+  next.halted = false;
+  next.haltReason = "";
+  next.equity = [{ t: Date.now(), v: STARTING }];
   setState(next);
   return snapshot();
 }

@@ -894,6 +894,11 @@ function HomePane({
   const settleFreeze = useRef<
     Record<string, { mark: number; mtm: number; hit: boolean | null; end: number }>
   >({});
+  const freezeRun = useRef(desk.runStartedAt);
+  if (desk.runStartedAt !== freezeRun.current) {
+    settleFreeze.current = {};
+    freezeRun.current = desk.runStartedAt;
+  }
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 250);
     return () => clearInterval(id);
