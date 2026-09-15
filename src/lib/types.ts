@@ -49,7 +49,9 @@ export type Position = {
   horizon?: "5m" | "15m";
   asset?: string;
   leg?: "up" | "down";
-  /** Last print when the round clock hit 0:00 — freeze P/L until venue 0/1. */
+  /** Last live print — used to freeze P/L at 0:00. */
+  lastMark?: number;
+  /** Frozen at 0:00 until venue 0/1. */
   closedMark?: number;
 };
 

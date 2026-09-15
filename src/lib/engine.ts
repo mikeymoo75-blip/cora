@@ -172,8 +172,11 @@ export function walletEquity(state: DeskState, id: WalletId): number {
 export function positionMark(p: Position, q?: Quote, now = Date.now()): number {
   const live = q?.price && q.price > 0 ? q.price : 0;
   const settling = p.kind === "poly" && !!p.windowEnd && now >= p.windowEnd;
-  if (settling) return p.closedMark || p.avg;
-  return live || p.avg;
+  if (settling) {
+    const frozen = [p.closedMark, p.lastMark, p.peak].find((n) => n && n > 0);
+    return frozen || p.avg;
+  }
+  return live || p.lastMark || p.avg;
 }
 
 export function markToMarket(
@@ -427,6 +430,7 @@ export function applyFill(
         qty,
         avg: cost / qty,
         peak: quote.price,
+        lastMark: quote.price,
         openedAt: Date.now(),
         windowStart,
         windowEnd,
@@ -442,6 +446,7 @@ export function applyFill(
         qty: newQty,
         avg,
         peak: Math.max(prev.peak, quote.price),
+        lastMark: quote.price || prev.lastMark,
         openedAt: prev.openedAt || Date.now(),
         windowStart: prev.windowStart || windowStart,
         windowEnd: prev.windowEnd || windowEnd,
@@ -1531,22 +1536,38 @@ export function tickHeldExits(state: DeskState): DeskState {
 
   for (const pos of Object.values(next.positions)) {
     const quote = next.quotes[pos.symbol];
+    const windowOver = !!(pos.windowEnd && Date.now() >= pos.windowEnd);
+    const last = quote && quote.price > 0 ? quote.price : pos.lastMark;
+    if (windowOver || last) {
+      next = {
+        ...next,
+        positions: {
+          ...next.positions,
+          [pos.symbol]: {
+            ...pos,
+            lastMark: windowOver ? pos.lastMark || last : last || pos.lastMark,
+            closedMark: pos.closedMark || (windowOver && (pos.lastMark || last) ? pos.lastMark || last : undefined),
+          },
+        },
+      };
+    }
     if (!quote) continue;
     if (pos.kind === "stock" && !rth) continue;
-    const windowOver = !!(pos.windowEnd && Date.now() >= pos.windowEnd);
+    const stamped = next.positions[pos.symbol]!;
     next = {
       ...next,
       positions: {
         ...next.positions,
         [pos.symbol]: {
-          ...pos,
-          peak: windowOver ? pos.peak : Math.max(pos.peak, quote.price),
-          windowStart: pos.windowStart || quote.windowStart,
-          windowEnd: pos.windowEnd || quote.windowEnd,
-          horizon: pos.horizon || quote.horizon,
-          asset: pos.asset || quote.asset,
-          leg: pos.leg || quote.leg,
-          closedMark: pos.closedMark || (windowOver && quote.price > 0 ? quote.price : undefined),
+          ...stamped,
+          peak: windowOver ? stamped.peak : Math.max(stamped.peak, quote.price),
+          windowStart: stamped.windowStart || quote.windowStart,
+          windowEnd: stamped.windowEnd || quote.windowEnd,
+          horizon: stamped.horizon || quote.horizon,
+          asset: stamped.asset || quote.asset,
+          leg: stamped.leg || quote.leg,
+          lastMark: windowOver ? stamped.lastMark || last : last,
+          closedMark: stamped.closedMark,
         },
       },
     };
