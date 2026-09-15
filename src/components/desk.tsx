@@ -216,7 +216,7 @@ export function Desk() {
           <div className="mt-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
             <p className="font-display text-lg font-semibold">Start a fresh $1,000 test</p>
             <p className="mt-1 text-sm text-muted">
-              $800 stocks + crypto, $200 Polymarket. Only Scan Polymarket · 5m/15m stays on. Save a report first if you want to paste this run in chat.
+              $500 stocks + crypto, $500 Polymarket. Only Scan Polymarket · 5m/15m stays on. Save a report first if you want to paste this run in chat.
             </p>
             <input
               value={resetName}
@@ -928,7 +928,7 @@ function HomePane({
             }}
           >
             <p className="text-sm font-semibold">Override the bots</p>
-            <p className="mt-1 text-xs text-muted">Pays from the matching wallet. Polymarket stays in its $200.</p>
+            <p className="mt-1 text-xs text-muted">Pays from the matching wallet. Polymarket stays in its $500.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <input
                 value={query}

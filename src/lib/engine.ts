@@ -28,8 +28,8 @@ import type {
   WalletView,
 } from "./types";
 
-export const CORE_START = 800;
-export const POLY_START = 200;
+export const CORE_START = 500;
+export const POLY_START = 500;
 export const PUMP_START = POLY_START;
 /** Max fraction of a wallet sitting in open bags. */
 export const MAX_DEPLOYED = 0.45;
@@ -89,7 +89,6 @@ export function ensureWallets(state: DeskState): DeskState {
     if (Math.abs(polyCash - wallets.poly.cash) > 0.009) {
       wallets = { ...wallets, poly: { ...wallets.poly, cash: Math.round(polyCash * 100) / 100 } };
     }
-    const cash = wallets.core.cash + wallets.poly.cash;
     for (const id of ["core", "poly"] as WalletId[]) {
       const eq = walletEquity({ ...state, wallets, positions, quotes }, id);
       const w = wallets[id];
@@ -97,11 +96,27 @@ export function ensureWallets(state: DeskState): DeskState {
         wallets = { ...wallets, [id]: { ...w, dayStartEquity: eq } };
       }
     }
+    if (wallets.core.startingCash === 800 && wallets.poly.startingCash === 200) {
+      const move = Math.min(300, Math.max(0, wallets.core.cash - 20));
+      wallets = {
+        core: {
+          ...wallets.core,
+          cash: Math.round((wallets.core.cash - move) * 100) / 100,
+          startingCash: CORE_START,
+        },
+        poly: {
+          ...wallets.poly,
+          cash: Math.round((wallets.poly.cash + move) * 100) / 100,
+          startingCash: POLY_START,
+        },
+      };
+    }
     const poly = wallets.poly;
     const holdingPoly = Object.values(positions).some((p) => isEventKind(p.kind));
     if (poly.halted && (poly.cash >= 5 || holdingPoly)) {
       wallets = { ...wallets, poly: { ...poly, halted: false, haltReason: "" } };
     }
+    const cash = wallets.core.cash + wallets.poly.cash;
     next = {
       ...state,
       cash,
@@ -113,7 +128,7 @@ export function ensureWallets(state: DeskState): DeskState {
     };
   } else {
     const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
-    const coreCash = Math.round(cash * 0.8 * 100) / 100;
+    const coreCash = Math.round(cash * 0.5 * 100) / 100;
     const polyCash = Math.round((cash - coreCash) * 100) / 100;
     const wallets: Record<WalletId, Wallet> = {
       core: {
