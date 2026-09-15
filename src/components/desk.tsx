@@ -422,7 +422,7 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
       <p className="mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl">{compactMoney(wallet.equity)}</p>
       <p className="mt-0.5 text-[11px] opacity-90 md:text-sm">
         cash {compactMoney(wallet.cash)}
-        <span className="hidden md:inline"> · </span>
+        <span className="hidden md:inline"> · cashed </span>
         <span className="block font-semibold md:inline">{signedMoney(wallet.realizedPnl)}</span>
       </p>
     </div>

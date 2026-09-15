@@ -188,7 +188,7 @@ export function walletEquity(state: DeskState, id: WalletId): number {
   let eq = cash;
   for (const p of Object.values(state.positions || {})) {
     if (walletIdFor(p.kind) !== id) continue;
-    eq += p.qty * positionMark(p, state.quotes[p.symbol]);
+    eq += p.qty * (isEventKind(p.kind) ? p.avg : positionMark(p, state.quotes[p.symbol]));
   }
   return eq;
 }
