@@ -49,6 +49,8 @@ export type Position = {
   horizon?: "5m" | "15m";
   asset?: string;
   leg?: "up" | "down";
+  /** Last print when the round clock hit 0:00 — freeze P/L until venue 0/1. */
+  closedMark?: number;
 };
 
 export type FillSource = "manual" | "bot" | "copy";

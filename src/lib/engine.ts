@@ -1524,6 +1524,7 @@ export function tickHeldExits(state: DeskState): DeskState {
     const quote = next.quotes[pos.symbol];
     if (!quote) continue;
     if (pos.kind === "stock" && !rth) continue;
+    const windowOver = !!(pos.windowEnd && Date.now() >= pos.windowEnd);
     next = {
       ...next,
       positions: {
@@ -1536,6 +1537,9 @@ export function tickHeldExits(state: DeskState): DeskState {
           horizon: pos.horizon || quote.horizon,
           asset: pos.asset || quote.asset,
           leg: pos.leg || quote.leg,
+          closedMark:
+            pos.closedMark ||
+            (windowOver && quote.price > 0 ? quote.price : undefined),
         },
       },
     };

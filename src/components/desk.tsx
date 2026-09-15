@@ -871,14 +871,16 @@ function HomePane({
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {holdings.map((p) => {
               const q = desk.quotes[p.symbol];
-              const mark = q?.price ?? p.avg;
-              const mtm = (mark - p.avg) * p.qty;
-              const value = p.qty * mark;
               const horizon = p.horizon || bagHorizon(p, q);
               const end = p.windowEnd || q?.windowEnd;
               const leftSec = end != null ? (end - now) / 1000 : horizon ? wallClockLeft(horizon, now) : null;
               const settling = end != null && now >= end;
-              const winning = mtm > 0.05;
+              const live = q?.price ?? p.avg;
+              const resolved = live <= 0.04 || live >= 0.96;
+              const mark = settling && !resolved && p.closedMark ? p.closedMark : live;
+              const mtm = (mark - p.avg) * p.qty;
+              const value = p.qty * mark;
+              const winning = mtm > 0.05 && !settling;
               return (
                 <li
                   key={p.symbol}
