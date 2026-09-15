@@ -193,6 +193,23 @@ function polyTicker(slug: string, question: string): string {
   return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
 }
 
+function gammaBook(m: GammaMarket, leg: "up" | "down"): { bid: number; ask: number; bidSize: number; askSize: number } | null {
+  const prices = parseJsonArray(m.outcomePrices).map(Number);
+  const mid = leg === "down" ? prices[1] : prices[0];
+  const bid = Number(m.bestBid);
+  const ask = Number(m.bestAsk);
+  if (leg === "up" && bid > 0 && ask > bid) return { bid, ask, bidSize: 10, askSize: 10 };
+  if (leg === "down" && bid > 0 && ask > bid) {
+    const dnBid = Math.max(0.01, 1 - ask);
+    const dnAsk = Math.max(dnBid + 0.01, 1 - bid);
+    return { bid: dnBid, ask: dnAsk, bidSize: 10, askSize: 10 };
+  }
+  if (mid > 0 && mid < 1) {
+    return { bid: Math.max(0.01, mid - 0.02), ask: Math.min(0.99, mid + 0.02), bidSize: 5, askSize: 5 };
+  }
+  return null;
+}
+
 async function clobTop(tokenId: string): Promise<{ bid: number; ask: number; bidSize: number; askSize: number } | null> {
   try {
     const json = (await fetchJson(
@@ -432,17 +449,35 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const [upTok, dnTok] = tokens;
         if (!upTok || !dnTok) return;
         const [restUp, restDn] = await Promise.all([clobTop(upTok), clobTop(dnTok)]);
-        const upBook = clobLive(upTok, 8000) || restUp;
-        const dnBook = clobLive(dnTok, 8000) || restDn;
+        const upBook =
+          clobLive(upTok, 8000) ||
+          restUp ||
+          gammaBook(m, "up");
+        const dnBook =
+          clobLive(dnTok, 8000) ||
+          restDn ||
+          gammaBook(m, "down");
         if (!upBook || !dnBook) return;
         const lookback = Number((m as { cryptoMarketConfig?: { twapLookbackSeconds?: number } }).cryptoMarketConfig?.twapLookbackSeconds) || 60;
-        const open = twapOpen(w.asset, w.windowStart, lookback);
-        const spot = twapNow(w.asset, lookback);
-        const closes = twapCloses(w.asset, w.windowStart, lookback);
+        const twapSpot = twapNow(w.asset, lookback);
+        const twapO = twapOpen(w.asset, w.windowStart, lookback);
+        let open = twapO;
+        let spot = twapSpot;
+        let closes = twapCloses(w.asset, w.windowStart, lookback);
+        if (!(spot > 0) && w.asset === "HYPE") {
+          const hl = await fetchHlTape("HYPE");
+          if (hl) {
+            spot = hl.spot;
+            if (!(open > 0)) open = openFromTape(hl.rows, w.windowStart, w.horizon) || hl.spot;
+            if (closes.length < 4) {
+              closes = windowCloses(hl.fine.length ? hl.fine : hl.rows, w.windowStart, open, spot);
+            }
+          }
+        }
         const sigma1m = sigmaFromCloses(closes);
         const { mom } = momFromCloses(closes);
         const tau = Math.max(0, (w.windowEnd - Date.now()) / 1000);
-        const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : 0.5;
+        const fair = twapSpot && twapO ? fairUp(twapSpot, twapO, sigma1m, tau, mom) : 0.5;
         const spark = closes.length ? closes : [spot || upBook.ask];
         const vol = Number(m.volume24hr ?? m.volume ?? 0);
         const upId = `poly:${m.id}:up`;

@@ -6,13 +6,14 @@ type TwapG = typeof globalThis & {
   __coraTwap?: {
     ws?: WebSocket;
     tapes: Map<string, Tick[]>;
+    opens: Map<string, number>;
     timer?: ReturnType<typeof setTimeout>;
   };
 };
 
 function store(): NonNullable<TwapG["__coraTwap"]> {
   const g = globalThis as TwapG;
-  if (!g.__coraTwap) g.__coraTwap = { tapes: new Map() };
+  if (!g.__coraTwap) g.__coraTwap = { tapes: new Map(), opens: new Map() };
   return g.__coraTwap;
 }
 
@@ -108,17 +109,26 @@ export function twapNow(asset: string, lookback = 60): number {
   return arr[arr.length - 1]?.px || 0;
 }
 
-/** Opening TWAP at window start. Empty if we didn't see the print — do not substitute Binance. */
+/** Opening TWAP at window start. Freeze the first print we have; HYPE ticks slower than BTC. */
 export function twapOpen(asset: string, windowStart: number, lookback = 60): number {
+  if (!(windowStart > 0)) return 0;
+  const s = store();
+  const ok = `${asset.toUpperCase()}-${lookback}-${windowStart}`;
+  const frozen = s.opens.get(ok);
+  if (frozen && frozen > 0) return frozen;
   const arr = tape(asset, lookback);
   if (!arr.length) return 0;
-  const hit = arr.find((x) => x.t >= windowStart && x.t <= windowStart + 8000);
-  if (hit) return hit.px;
   let before: Tick | undefined;
+  let after: Tick | undefined;
   for (const x of arr) {
-    if (x.t <= windowStart && windowStart - x.t <= 2500) before = x;
+    if (x.t <= windowStart && windowStart - x.t <= 60_000) before = x;
+    if (x.t >= windowStart && x.t <= windowStart + 60_000 && !after) after = x;
   }
-  return before?.px || 0;
+  const px = (before && after
+    ? (windowStart - before.t <= after.t - windowStart ? before.px : after.px)
+    : before?.px || after?.px) || 0;
+  if (px > 0) s.opens.set(ok, px);
+  return px;
 }
 
 export function twapCloses(asset: string, windowStart: number, lookback = 60): number[] {
