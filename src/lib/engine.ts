@@ -446,6 +446,8 @@ export function applyFill(
   const manualLocks = { ...(s0.manualLocks || {}) };
 
   if (side === "buy") {
+    const end = quote.windowEnd || (quote.horizon ? windowBounds(quote.horizon).end : 0);
+    if (quote.horizon && end && Date.now() >= end) return s0;
     cash -= gross + fees.total;
     const prev = positions[symbol];
     const cost = gross + fees.total;

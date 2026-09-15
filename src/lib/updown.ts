@@ -327,7 +327,7 @@ export function pairLocks(quotes: Quote[]): { a: Quote; b: Quote; cost: number; 
     if (upAsk < 0.2 || dnAsk < 0.2 || upAsk > 0.75 || dnAsk > 0.75) continue;
     if ((up.askSize || 0) < 8 || (down.askSize || 0) < 8) continue;
     const tau = Math.max(0, ((up.windowEnd || 0) - Date.now()) / 1000);
-    if (tau < 25) continue;
+    if (tau < 90) continue;
     out.push({
       a: up,
       b: down,
