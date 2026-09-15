@@ -891,8 +891,15 @@ function HomePane({
               const mark = positionMark(p, q, now);
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
-              const winning = mtm > 0.05 && !settling;
-              const settleWin = settling && mtm > 0.05;
+              const spot = q?.spot || 0;
+              const openPx = q?.openPx || 0;
+              const coinUp = spot > 0 && openPx > 0 && spot >= openPx;
+              const sideHit =
+                spot > 0 &&
+                openPx > 0 &&
+                (p.leg === "down" ? !coinUp : p.leg === "up" ? coinUp : false);
+              const winning = sideHit && !settling;
+              const settleWin = settling && sideHit;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
