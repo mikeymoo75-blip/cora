@@ -139,6 +139,7 @@ type GammaMarket = {
   liquidity?: string | number;
   bestBid?: number;
   bestAsk?: number;
+  clobTokenIds?: string | string[];
   closed?: boolean;
   active?: boolean;
   enableOrderBook?: boolean;
@@ -190,18 +191,27 @@ function polyTicker(slug: string, question: string): string {
   return (words.slice(0, 3).join("-") || "poly").toUpperCase().slice(0, 16);
 }
 
-function gammaBook(m: GammaMarket, mid: number): { bid: number; ask: number; spreadBps?: number } {
-  const bid = Number(m.bestBid);
-  const ask = Number(m.bestAsk);
-  if (bid > 0 && ask > bid) {
-    return { bid, ask, spreadBps: ((ask - bid) / ((ask + bid) / 2)) * 10_000 };
+async function clobTop(tokenId: string): Promise<{ bid: number; ask: number; bidSize: number; askSize: number } | null> {
+  try {
+    const json = (await fetchJson(
+      `https://clob.polymarket.com/book?token_id=${encodeURIComponent(tokenId)}`,
+      5000,
+    )) as { bids?: { price?: string; size?: string }[]; asks?: { price?: string; size?: string }[] };
+    const bids = (json.bids || [])
+      .map((r) => ({ price: Number(r.price), size: Number(r.size) }))
+      .filter((r) => r.price > 0 && r.size > 0)
+      .sort((a, b) => b.price - a.price);
+    const asks = (json.asks || [])
+      .map((r) => ({ price: Number(r.price), size: Number(r.size) }))
+      .filter((r) => r.price > 0 && r.size > 0)
+      .sort((a, b) => a.price - b.price);
+    const bid = bids[0];
+    const ask = asks[0];
+    if (!bid || !ask || !(ask.price > bid.price)) return null;
+    return { bid: bid.price, ask: ask.price, bidSize: bid.size, askSize: ask.size };
+  } catch {
+    return null;
   }
-  const hair = 0.02;
-  return {
-    bid: Math.max(0.01, mid - hair),
-    ask: Math.min(0.99, mid + hair),
-    spreadBps: 800,
-  };
 }
 
 function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
@@ -214,7 +224,9 @@ function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
   const liq = Number(m.liquidity ?? 0);
   if (!allowSettled && vol < 20_000 && liq < 10_000) return null;
   const px = Math.min(0.999, Math.max(0.001, yes || (allowSettled ? 0.001 : 0)));
-  const book = gammaBook(m, px);
+  const bid = Number(m.bestBid);
+  const ask = Number(m.bestAsk);
+  const hasBook = bid > 0 && ask > bid;
   return {
     id: `poly:${m.id}`,
     symbol: polyTicker(m.slug || "", m.question || ""),
@@ -225,9 +237,9 @@ function marketToQuote(m: GammaMarket, allowSettled = false): Quote | null {
     volume: vol || liq,
     spark: [px],
     live: true,
-    spreadBps: book.spreadBps,
-    bid: book.bid,
-    ask: book.ask,
+    spreadBps: hasBook ? ((ask - bid) / ((ask + bid) / 2)) * 10_000 : undefined,
+    bid: hasBook ? bid : undefined,
+    ask: hasBook ? ask : undefined,
   };
 }
 
@@ -420,9 +432,11 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const ev = Array.isArray(json) ? (json as GammaEvent[])[0] : (json as GammaEvent);
         const m = ev?.markets?.[0];
         if (!m?.id) return;
-        const prices = parseJsonArray(m.outcomePrices).map(Number);
-        const upPx = Number.isFinite(prices[0]) ? prices[0]! : 0.5;
-        const downPx = Number.isFinite(prices[1]) ? prices[1]! : Math.max(0.001, 1 - upPx);
+        const tokens = parseJsonArray(m.clobTokenIds);
+        const [upTok, dnTok] = tokens;
+        if (!upTok || !dnTok) return;
+        const [upBook, dnBook] = await Promise.all([clobTop(upTok), clobTop(dnTok)]);
+        if (!upBook || !dnBook) return;
         const tape = tapes.get(w.asset);
         const open = tape ? openFromTape(tape.rows, w.windowStart, w.horizon) : 0;
         const spot = tape?.spot || 0;
@@ -432,10 +446,8 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const tau = Math.max(0, (w.windowEnd - Date.now()) / 1000);
         const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : 0.5;
         const fine = tape && tape.fine.length >= 8 ? tape.fine : tape?.rows;
-        const spark = tape && open ? windowCloses(fine || tape.rows, w.windowStart, open, spot) : [spot || upPx];
+        const spark = tape && open ? windowCloses(fine || tape.rows, w.windowStart, open, spot) : [spot || upBook.ask];
         const vol = Number(m.volume24hr ?? m.volume ?? 0);
-        const upBook = gammaBook(m, upPx);
-        const downBook = { bid: Math.max(0.01, 1 - upBook.ask), ask: Math.min(0.99, 1 - upBook.bid), spreadBps: upBook.spreadBps };
         const upId = `poly:${m.id}:up`;
         const downId = `poly:${m.id}:down`;
         const base = {
@@ -452,31 +464,35 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
           spark,
         };
         const delta = spot && open ? ((spot - open) / open) * 100 : 0;
+        const upMid = (upBook.bid + upBook.ask) / 2;
+        const dnMid = (dnBook.bid + dnBook.ask) / 2;
         out.push({
           ...base,
           id: upId,
           symbol: `${w.asset}-${w.horizon}-UP`,
           name: ev?.title || `${w.asset} Up ${w.horizon}`,
-          price: Math.min(0.999, Math.max(0.001, upPx)),
+          price: upMid,
           changePct: delta,
           pairId: downId,
           leg: "up",
-          spreadBps: upBook.spreadBps,
+          spreadBps: ((upBook.ask - upBook.bid) / upMid) * 10_000,
           bid: upBook.bid,
           ask: upBook.ask,
+          askSize: upBook.askSize,
         });
         out.push({
           ...base,
           id: downId,
           symbol: `${w.asset}-${w.horizon}-DN`,
           name: `${w.asset} Down ${w.horizon}`,
-          price: Math.min(0.999, Math.max(0.001, downPx)),
+          price: dnMid,
           changePct: -delta,
           pairId: upId,
           leg: "down",
-          spreadBps: downBook.spreadBps,
-          bid: downBook.bid,
-          ask: downBook.ask,
+          spreadBps: ((dnBook.ask - dnBook.bid) / dnMid) * 10_000,
+          bid: dnBook.bid,
+          ask: dnBook.ask,
+          askSize: dnBook.askSize,
         });
       } catch {
         /* skip this window */
@@ -501,8 +517,23 @@ export async function refreshHeldPoly(heldIds: string[]): Promise<Quote[]> {
         7000,
       );
       const row = Array.isArray(json) ? (json as GammaMarket[])[0] : (json as GammaMarket);
-      const q = row ? marketToQuote(row, true) : null;
-      if (q) out.push({ ...q, id });
+      if (!row) continue;
+      const { leg } = parsePolyId(id);
+      const prices = parseJsonArray(row.outcomePrices).map(Number);
+      const raw = leg === "down" ? prices[1] : prices[0];
+      const px = Number.isFinite(raw) ? Math.min(0.999, Math.max(0.001, raw!)) : 0;
+      if (!(px > 0)) continue;
+      const resolved = px <= 0.04 || px >= 0.96;
+      const q = marketToQuote(row, true);
+      if (!q) continue;
+      out.push({
+        ...q,
+        id,
+        price: px,
+        bid: resolved ? px : q.bid,
+        ask: resolved ? px : q.ask,
+        askSize: resolved ? 0 : q.askSize,
+      });
     } catch {
       /* leave last known quote */
     }

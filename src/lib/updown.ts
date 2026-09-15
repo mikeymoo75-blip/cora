@@ -153,30 +153,37 @@ export function updownExplain(
 
   if (pos) {
     if (!last || last <= 0) return { action: "sell", why: "Odds print died — getting out." };
-    if (quote.windowEnd && now >= quote.windowEnd - 500) {
-      return { action: "sell", why: "Window closed — settling the round." };
+    if (last <= 0.04 || last >= 0.96) {
+      return { action: "sell", why: `Polymarket resolved at ${Math.round(last * 100)}¢.` };
     }
-    if (last <= 0.02 || last >= 0.98) {
-      return { action: "sell", why: `Round settling at ${Math.round(last * 100)}¢.` };
+    if (quote.windowEnd && now >= quote.windowEnd - 500) {
+      return {
+        action: "hold",
+        why: "Window ended — waiting for Polymarket to resolve (Chainlink TWAP), not our Binance print.",
+      };
     }
     if (other) {
       return {
         action: "hold",
-        why: `Hedged ${quote.asset} ${quote.horizon}. Holding both sides to settle. Fair Up ${(fair * 100).toFixed(0)}¢.`,
+        why: `Hedged ${quote.asset} ${quote.horizon}. Holding both sides to venue resolve. Fair Up ${(fair * 100).toFixed(0)}¢.`,
       };
     }
-    const fromEntryC = (last - pos.avg) * 100;
+    const mark = quote.bid && quote.bid > 0 ? quote.bid : last;
+    const fromEntryC = (mark - pos.avg) * 100;
     if (fromEntryC <= -10) {
-      return { action: "sell", why: `Unhedged stop — this leg is down ${Math.abs(fromEntryC).toFixed(1)}¢.` };
+      return { action: "sell", why: `Unhedged stop — bid is down ${Math.abs(fromEntryC).toFixed(1)}¢.` };
     }
     return {
       action: "hold",
-      why: `Watching ${quote.symbol}. Fair ${(thisFair * 100).toFixed(0)}¢ vs book ${(last * 100).toFixed(0)}¢. ${tau > 0 ? `${Math.ceil(tau)}s left.` : "Settling."}`,
+      why: `Watching ${quote.symbol}. Fair ${(thisFair * 100).toFixed(0)}¢ vs ask ${((quote.ask || last) * 100).toFixed(0)}¢. ${tau > 0 ? `${Math.ceil(tau)}s left.` : "Waiting on resolve."}`,
     };
   }
 
   if (!quote.live || !quote.openPx || !quote.spot) {
     return { action: "hold", why: "Waiting on spot vs Price-to-Beat." };
+  }
+  if (!(quote.ask && quote.ask > 0) || (quote.askSize || 0) < 5) {
+    return { action: "hold", why: "No CLOB ask with size — not filling a ghost book." };
   }
   if (elapsed < 15) return { action: "hold", why: "First 15s of the round — book is noisy." };
   if (tau <= 0) return { action: "hold", why: "Window is closed — no new tickets." };

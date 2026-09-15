@@ -18,6 +18,8 @@ export type Quote = {
   /** Taker bid/ask (dollars, 0–1) for Polymarket. */
   bid?: number;
   ask?: number;
+  /** Shares sitting on the best ask — paper only lifts this size. */
+  askSize?: number;
   /** Fair P(up) for 5m/15m crypto rounds. */
   fair?: number;
   windowStart?: number;
