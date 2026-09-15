@@ -892,20 +892,26 @@ function HomePane({
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
               const winning = mtm > 0.05 && !settling;
+              const settleWin = settling && mtm > 0.05;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
                 <li
                   key={p.symbol}
                   className={cn(
-                    "rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]",
-                    winning && "bag-win",
+                    "relative overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]",
+                    (winning || settleWin) && "bag-win",
                     fresh && "bag-new",
                   )}
                 >
+                  {settleWin && (
+                    <span className="bag-winner-banner" aria-hidden>
+                      WINNER
+                    </span>
+                  )}
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className={cn("font-display text-xl font-semibold", winning && "text-primary")}>
+                      <p className={cn("font-display text-xl font-semibold", (winning || settleWin) && "text-primary")}>
                         {q?.symbol ?? p.symbol}
                       </p>
                       <p className="text-xs text-muted">
@@ -935,7 +941,7 @@ function HomePane({
                     {p.kind === "poly" ? eventOdds(p.avg) : money(p.avg)}
                     {q && p.kind === "poly" ? ` · now ${eventOdds(mark)}` : ""}
                   </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="relative z-10 mt-3 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       className="min-h-11 rounded-lg bg-elevated text-sm font-semibold"

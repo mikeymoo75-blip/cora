@@ -236,10 +236,41 @@
     transform: translate3d(0, -4px, 0) scale(1.04);
   }
 }
+.bag-winner-banner {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 6vw, 3rem);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-primary);
+  text-shadow:
+    0 0 12px color-mix(in srgb, var(--color-primary) 80%, white),
+    0 0 28px color-mix(in srgb, var(--color-primary) 70%, transparent),
+    0 0 52px color-mix(in srgb, var(--color-primary) 55%, transparent);
+  transform: rotate(-14deg);
+  animation: bag-winner-glow 1.4s ease-in-out infinite;
+}
+@keyframes bag-winner-glow {
+  0%,
+  100% {
+    opacity: 0.72;
+    filter: saturate(1.1) brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: saturate(1.45) brightness(1.25);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .bag-win,
   .bag-win::before,
-  .bag-win::after {
+  .bag-win::after,
+  .bag-winner-banner {
     animation: none;
   }
 }
