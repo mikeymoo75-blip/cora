@@ -951,6 +951,7 @@ function HomePane({
               const settleWin = settling && hit === true;
               const settleLose = settling && hit === false;
               const liveLose = !settling && hit === false;
+              const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
                 <li
