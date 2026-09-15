@@ -785,22 +785,33 @@ function bagLeg(p: Position, q?: Quote): "up" | "down" | "" {
 }
 
 function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; open: number } {
-  const from = (x?: Quote) => ({
-    spot: x?.spot || 0,
-    open: x?.openPx || 0,
-  });
-  let r = from(q);
-  if (r.spot > 0 && r.open > 0) return r;
+  const settling = !!(p.windowEnd && Date.now() >= p.windowEnd);
+  if (settling) {
+    return {
+      spot: p.lastSpot || 0,
+      open: p.lastOpen || 0,
+    };
+  }
+  const spot = q?.spot || p.lastSpot || 0;
+  const open = q?.openPx || p.lastOpen || 0;
+  if (spot > 0 && open > 0) return { spot, open };
   const asset = p.asset || q?.asset;
   const horizon = p.horizon || q?.horizon;
-  if (asset && horizon) {
+  const start = p.windowStart || q?.windowStart;
+  if (asset && horizon && start) {
     for (const x of Object.values(desk.quotes)) {
-      if (x.asset === asset && x.horizon === horizon && (x.spot || 0) > 0 && (x.openPx || 0) > 0) {
+      if (
+        x.asset === asset &&
+        x.horizon === horizon &&
+        x.windowStart === start &&
+        (x.spot || 0) > 0 &&
+        (x.openPx || 0) > 0
+      ) {
         return { spot: x.spot || 0, open: x.openPx || 0 };
       }
     }
   }
-  return { spot: p.lastSpot || 0, open: p.lastOpen || 0 };
+  return { spot, open };
 }
 
 function HomePane({

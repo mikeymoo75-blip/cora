@@ -768,6 +768,7 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
       }
     }
     if (next.horizon && next.asset) {
+      if (next.windowEnd && Date.now() >= next.windowEnd) return next;
       const tSpot = twapNow(next.asset, 60);
       const tOpen = next.windowStart ? twapOpen(next.asset, next.windowStart, 60) : 0;
       const closes = tSpot && next.windowStart ? twapCloses(next.asset, next.windowStart, 60) : [];
