@@ -280,10 +280,50 @@
 .bag-lose {
   position: relative;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-down) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-down) 50%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-down) 20%, transparent),
-    0 0 24px -6px color-mix(in srgb, var(--color-down) 40%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--color-down) 22%, transparent),
+    0 0 28px -6px color-mix(in srgb, var(--color-down) 45%, transparent);
+  animation: bag-lose-glow 1.8s ease-in-out infinite;
+}
+.bag-lose::before,
+.bag-lose::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -8%;
+}
+.bag-lose::before {
+  background-image:
+    radial-gradient(1.6px 1.6px at 14% 22%, var(--color-down) 55%, transparent 60%),
+    radial-gradient(1.2px 1.2px at 38% 12%, #fff 55%, transparent 62%),
+    radial-gradient(1.8px 1.8px at 72% 18%, var(--color-down) 55%, transparent 60%),
+    radial-gradient(1.1px 1.1px at 88% 36%, #fff 55%, transparent 62%),
+    radial-gradient(1.4px 1.4px at 22% 68%, var(--color-down) 55%, transparent 60%),
+    radial-gradient(1.3px 1.3px at 64% 78%, #fff 55%, transparent 62%),
+    radial-gradient(1.7px 1.7px at 91% 72%, var(--color-down) 55%, transparent 60%);
+  animation: bag-sparkle 1.5s ease-in-out infinite;
+}
+.bag-lose::after {
+  background-image:
+    radial-gradient(1.3px 1.3px at 28% 42%, #fff 55%, transparent 62%),
+    radial-gradient(1.6px 1.6px at 54% 28%, var(--color-down) 55%, transparent 60%),
+    radial-gradient(1.2px 1.2px at 80% 58%, #fff 55%, transparent 62%),
+    radial-gradient(1.5px 1.5px at 46% 86%, var(--color-down) 55%, transparent 60%);
+  animation: bag-sparkle 1.9s ease-in-out infinite reverse;
+}
+@keyframes bag-lose-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-down) 22%, transparent),
+      0 0 22px -8px color-mix(in srgb, var(--color-down) 40%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-down) 45%, transparent),
+      0 0 36px -4px color-mix(in srgb, var(--color-down) 70%, transparent);
+  }
 }
 @keyframes bag-winner-glow {
   0%,
@@ -300,6 +340,9 @@
   .bag-win,
   .bag-win::before,
   .bag-win::after,
+  .bag-lose,
+  .bag-lose::before,
+  .bag-lose::after,
   .bag-winner-banner,
   .bag-loser-banner {
     animation: none;
