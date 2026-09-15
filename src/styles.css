@@ -239,7 +239,10 @@
 .bag-winner-banner {
   pointer-events: none;
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 8%;
+  height: 58%;
   z-index: 2;
   display: grid;
   place-items: center;
