@@ -77,9 +77,27 @@ export function currentWindows(at = Date.now()): UpDownWindow[] {
 
 /** Seconds left in the current 5m/15m unix window — wall clock, not the quote. */
 export function wallClockLeft(horizon: "5m" | "15m" | string, at = Date.now()): number {
+  return Math.max(0, windowBounds(horizon, at).left);
+}
+
+export function windowBounds(horizon: "5m" | "15m" | string, at = Date.now()): {
+  start: number;
+  end: number;
+  left: number;
+} {
   const span = horizon === "15m" ? 900 : 300;
   const sec = Math.floor(at / 1000);
-  return span - (sec % span);
+  const start = Math.floor(sec / span) * span;
+  const end = start + span;
+  return { start: start * 1000, end: end * 1000, left: end - sec };
+}
+
+/** True if this quote is the *current* 5m/15m window, not a leftover settling market. */
+export function isLiveWindow(q: { horizon?: string; windowEnd?: number }, at = Date.now()): boolean {
+  if (!q.horizon) return false;
+  const live = windowBounds(q.horizon, at).end;
+  if (!q.windowEnd) return true;
+  return q.windowEnd >= live - 1500;
 }
 
 /** Last-minute log return + acceleration (change in 1m return). */
@@ -152,14 +170,15 @@ export function updownExplain(
 
   if (pos) {
     if (!last || last <= 0) return { action: "sell", why: "Odds print died — getting out." };
-    const windowOver = !!(quote.windowEnd && now >= quote.windowEnd - 500);
+    const end = pos.windowEnd || quote.windowEnd;
+    const windowOver = !!(end && now >= end);
     if (windowOver && (last <= 0.04 || last >= 0.96)) {
       return { action: "sell", why: `Polymarket resolved at ${Math.round(last * 100)}¢.` };
     }
     if (windowOver) {
       return {
         action: "hold",
-        why: "Window ended — waiting for Polymarket to resolve (Chainlink TWAP), not a mid-round 3¢ print.",
+        why: "This round's clock is at 0:00 — waiting for Polymarket 0/1, not a mid-round print.",
       };
     }
     if (other) {

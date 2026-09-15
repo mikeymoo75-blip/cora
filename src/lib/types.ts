@@ -39,6 +39,12 @@ export type Position = {
   avg: number;
   peak: number;
   openedAt: number;
+  /** Frozen at fill so the bag clock is this round, not the next chip. */
+  windowStart?: number;
+  windowEnd?: number;
+  horizon?: "5m" | "15m";
+  asset?: string;
+  leg?: "up" | "down";
 };
 
 export type FillSource = "manual" | "bot" | "copy";

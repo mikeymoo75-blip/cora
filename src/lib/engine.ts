@@ -332,9 +332,10 @@ function clamp01(n: number) {
 }
 
 /** Polymarket taker: buy the ask, sell the bid. Resolved markets pay 1¢ or 99¢ from the venue — not Binance. */
-export function paperFillPx(quote: Quote, side: "buy" | "sell"): number {
+export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: number): number {
   if (quote.kind === "poly") {
-    const windowOver = !!(quote.windowEnd && Date.now() >= quote.windowEnd - 500);
+    const end = windowEnd || quote.windowEnd;
+    const windowOver = !!(end && Date.now() >= end);
     if (side === "sell") {
       if (windowOver && quote.price <= 0.04) return 0.01;
       if (windowOver && quote.price >= 0.96) return 0.99;
@@ -365,20 +366,21 @@ export function applyFill(
   const wid = walletIdFor(kind);
   const book = s0.wallets[wid];
 
+  const pos = s0.positions[symbol];
   const expectedPrice = quote.price;
-  const px = paperFillPx(quote, side);
+  const px = paperFillPx(quote, side, pos?.windowEnd || quote.windowEnd);
   if (!(px > 0)) return s0;
   const slipActual = expectedPrice > 0 ? ((px - expectedPrice) / expectedPrice) * 10_000 : 0;
   let qty = notional / px;
-  const pos = s0.positions[symbol];
 
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return s0;
     qty = Math.min(qty, pos.qty);
+    const end = pos.windowEnd || quote.windowEnd;
     if (
       quote.kind === "poly" &&
-      quote.windowEnd &&
-      Date.now() >= quote.windowEnd - 500 &&
+      end &&
+      Date.now() >= end &&
       (quote.price <= 0.04 || quote.price >= 0.96)
     ) {
       qty = pos.qty;
@@ -410,7 +412,19 @@ export function applyFill(
     const prev = positions[symbol];
     const cost = gross + fees.total;
     if (!prev) {
-      positions[symbol] = { symbol, kind, qty, avg: cost / qty, peak: quote.price, openedAt: Date.now() };
+      positions[symbol] = {
+        symbol,
+        kind,
+        qty,
+        avg: cost / qty,
+        peak: quote.price,
+        openedAt: Date.now(),
+        windowStart: quote.windowStart,
+        windowEnd: quote.windowEnd,
+        horizon: quote.horizon,
+        asset: quote.asset,
+        leg: quote.leg,
+      };
     } else {
       const newQty = prev.qty + qty;
       const avg = (prev.avg * prev.qty + cost) / newQty;
@@ -420,6 +434,11 @@ export function applyFill(
         avg,
         peak: Math.max(prev.peak, quote.price),
         openedAt: prev.openedAt || Date.now(),
+        windowStart: prev.windowStart || quote.windowStart,
+        windowEnd: prev.windowEnd || quote.windowEnd,
+        horizon: prev.horizon || quote.horizon,
+        asset: prev.asset || quote.asset,
+        leg: prev.leg || quote.leg,
       };
     }
     if (source === "manual") delete manualLocks[symbol];
@@ -1473,7 +1492,15 @@ export function tickHeldExits(state: DeskState): DeskState {
       ...next,
       positions: {
         ...next.positions,
-        [pos.symbol]: { ...pos, peak: Math.max(pos.peak, quote.price) },
+        [pos.symbol]: {
+          ...pos,
+          peak: Math.max(pos.peak, quote.price),
+          windowStart: pos.windowStart || quote.windowStart,
+          windowEnd: pos.windowEnd || quote.windowEnd,
+          horizon: pos.horizon || quote.horizon,
+          asset: pos.asset || quote.asset,
+          leg: pos.leg || quote.leg,
+        },
       },
     };
     const marked = next.positions[pos.symbol]!;

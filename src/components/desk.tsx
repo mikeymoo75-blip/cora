@@ -32,7 +32,7 @@ import type {
   StrategyId,
   WalletView,
 } from "@/lib/types";
-import { UPDOWN_ORDER, wallClockLeft } from "@/lib/updown";
+import { UPDOWN_ORDER, isLiveWindow, wallClockLeft } from "@/lib/updown";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
@@ -478,6 +478,7 @@ function RoundBoard({
   const map = new Map<string, Round>();
   for (const q of quotes) {
     if (!q.horizon || !q.asset) continue;
+    if (!isLiveWindow(q, now)) continue;
     const key = `${q.asset}-${q.horizon}`;
     const row = map.get(key) || { key, asset: q.asset, horizon: q.horizon };
     const newer = (a?: Quote, b?: Quote) => ((b?.windowEnd || 0) >= (a?.windowEnd || 0) ? b : a);
@@ -868,13 +869,10 @@ function HomePane({
               const mark = q?.price ?? p.avg;
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
-              const horizon = bagHorizon(p, q);
-              const leftSec = q?.windowEnd
-                ? (q.windowEnd - now) / 1000
-                : horizon
-                  ? wallClockLeft(horizon, now)
-                  : null;
-              const settling = p.kind === "poly" && leftSec != null && leftSec <= 0;
+              const horizon = p.horizon || bagHorizon(p, q);
+              const end = p.windowEnd || q?.windowEnd;
+              const leftSec = end != null ? (end - now) / 1000 : horizon ? wallClockLeft(horizon, now) : null;
+              const settling = end != null && now >= end;
               return (
                 <li key={p.symbol} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
                   <div className="flex items-start justify-between gap-2">
