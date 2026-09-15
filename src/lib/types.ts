@@ -20,6 +20,8 @@ export type Quote = {
   ask?: number;
   /** Shares sitting on the best ask — paper only lifts this size. */
   askSize?: number;
+  /** CLOB token id — live book stream. */
+  clobTokenId?: string;
   /** Fair P(up) for 5m/15m crypto rounds. */
   fair?: number;
   windowStart?: number;

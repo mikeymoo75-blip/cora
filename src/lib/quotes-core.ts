@@ -2,6 +2,7 @@ import { CORE_SEEDS, POLY_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
 import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses } from "./updown";
 import { ensureTwapStream, twapCloses, twapNow, twapOpen } from "./twap";
+import { clobLive, ensureClobStream } from "./clob-ws";
 
 async function fetchJson(
   url: string,
@@ -430,7 +431,9 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         const tokens = parseJsonArray(m.clobTokenIds);
         const [upTok, dnTok] = tokens;
         if (!upTok || !dnTok) return;
-        const [upBook, dnBook] = await Promise.all([clobTop(upTok), clobTop(dnTok)]);
+        const [restUp, restDn] = await Promise.all([clobTop(upTok), clobTop(dnTok)]);
+        const upBook = clobLive(upTok, 8000) || restUp;
+        const dnBook = clobLive(dnTok, 8000) || restDn;
         if (!upBook || !dnBook) return;
         const lookback = Number((m as { cryptoMarketConfig?: { twapLookbackSeconds?: number } }).cryptoMarketConfig?.twapLookbackSeconds) || 60;
         const open = twapOpen(w.asset, w.windowStart, lookback);
@@ -473,6 +476,7 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
           bid: upBook.bid,
           ask: upBook.ask,
           askSize: upBook.askSize,
+          clobTokenId: upTok,
         });
         out.push({
           ...base,
@@ -487,11 +491,13 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
           bid: dnBook.bid,
           ask: dnBook.ask,
           askSize: dnBook.askSize,
+          clobTokenId: dnTok,
         });
       } catch {
         /* skip this window */
       }
   });
+  ensureClobStream(out.map((q) => q.clobTokenId).filter((id): id is string => !!id));
   return out;
 }
 
@@ -693,7 +699,52 @@ export async function fetchMarketSnapshot(): Promise<{
     if (prev?.kind === "stock") continue;
     byId.set(q.id, q);
   }
-  const quotes = [...byId.values(), ...poly];
+  const quotes = overlayLivePoly([...byId.values(), ...poly]);
   const live = quotes.some((q) => q.live);
   return { quotes, live, at: Date.now() };
+}
+
+/** Stamp live CLOB + Chainlink TWAP onto existing 5m/15m quotes without hitting Gamma. */
+export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] {
+  const rows = Array.isArray(list) ? list : Object.values(list);
+  ensureTwapStream();
+  const tokens = rows.map((q) => q.clobTokenId).filter((id): id is string => !!id);
+  if (tokens.length) ensureClobStream(tokens);
+  return rows.map((q) => {
+    if (q.kind !== "poly") return q;
+    let next = q;
+    if (q.clobTokenId) {
+      const live = clobLive(q.clobTokenId, 5000);
+      if (live) {
+        const mid = (live.bid + live.ask) / 2;
+        next = {
+          ...next,
+          bid: live.bid,
+          ask: live.ask,
+          askSize: live.askSize || next.askSize,
+          price: mid,
+          spreadBps: mid > 0 ? ((live.ask - live.bid) / mid) * 10_000 : next.spreadBps,
+          live: true,
+          seenAt: Date.now(),
+        };
+      }
+    }
+    if (next.horizon && next.asset) {
+      const spot = twapNow(next.asset, 60);
+      const open = next.openPx || (next.windowStart ? twapOpen(next.asset, next.windowStart, 60) : 0);
+      const closes = next.windowStart ? twapCloses(next.asset, next.windowStart, 60) : next.spark;
+      const sigma1m = sigmaFromCloses(closes.length ? closes : next.spark);
+      const { mom } = momFromCloses(closes.length ? closes : next.spark);
+      const tau = Math.max(0, ((next.windowEnd || 0) - Date.now()) / 1000);
+      const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : next.fair;
+      next = {
+        ...next,
+        spot: spot || next.spot,
+        openPx: open || next.openPx,
+        fair,
+        changePct: spot && open ? ((spot - open) / open) * 100 : next.changePct,
+      };
+    }
+    return next;
+  });
 }

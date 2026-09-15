@@ -246,3 +246,39 @@ export function updownExplain(
     why: `${hedge}${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: TWAP fair ${Math.round(blended * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
   };
 }
+
+/** 5m and 15m share a close in the last 5 minutes. One pair always pays ≥ $1. */
+export function corridorPairs(quotes: Quote[]): { a: Quote; b: Quote; cost: number; why: string }[] {
+  const by = new Map<string, Quote>();
+  for (const q of quotes) {
+    if (!q.horizon || !q.asset || !q.leg || !(q.ask && q.ask > 0)) continue;
+    by.set(`${q.asset}-${q.horizon}-${q.leg}`, q);
+  }
+  const assets = [...new Set(quotes.map((q) => q.asset).filter((a): a is string => !!a))];
+  const out: { a: Quote; b: Quote; cost: number; why: string }[] = [];
+  for (const asset of assets) {
+    const u5 = by.get(`${asset}-5m-up`);
+    const d5 = by.get(`${asset}-5m-down`);
+    const u15 = by.get(`${asset}-15m-up`);
+    const d15 = by.get(`${asset}-15m-down`);
+    if (!u5 || !d5 || !u15 || !d15) continue;
+    if (Math.abs((u5.windowEnd || 0) - (u15.windowEnd || 0)) > 2000) continue;
+    const o5 = u5.openPx || 0;
+    const o15 = u15.openPx || 0;
+    if (!(o5 > 0 && o15 > 0)) continue;
+    const a = o15 >= o5 ? u5 : d5;
+    const b = o15 >= o5 ? d15 : u15;
+    const cost = (a.ask || 0) + (b.ask || 0);
+    if (cost <= 0 || cost > 0.93) continue;
+    if ((a.askSize || 0) < 8 || (b.askSize || 0) < 8) continue;
+    const tau = Math.max(0, ((a.windowEnd || 0) - Date.now()) / 1000);
+    if (tau < 25) continue;
+    out.push({
+      a,
+      b,
+      cost,
+      why: `Corridor lock ${asset}: 5m ${a.leg?.toUpperCase()} ${Math.round((a.ask || 0) * 100)}¢ + 15m ${b.leg?.toUpperCase()} ${Math.round((b.ask || 0) * 100)}¢ = ${Math.round(cost * 100)}¢ vs $1 min payout. Same close. Opens ${o5.toFixed(2)} / ${o15.toFixed(2)}.`,
+    });
+  }
+  return out.sort((x, y) => x.cost - y.cost);
+}

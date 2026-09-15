@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { updownExplain } from "./updown";
+import { corridorPairs, updownExplain } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -1218,13 +1218,49 @@ export function tickBots(state: DeskState): DeskState {
           return `${q.symbol} ${sign}${fromC.toFixed(1)}¢`;
         });
         bot.lastSignal = "watching";
-        bot.lastReason = `Watching ${bits.join(", ")} every 10s. Sells on stop, trail, ${bot.strategy === "scalp" ? "90 min" : "6 hours"}, or settle.`;
+        bot.lastReason = `Watching ${bits.join(", ")} on the live book. Sells when this round hits 0:00 and Polymarket prints 0/1.`;
         acted = true;
       }
     }
 
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
+    if (bot.strategy === "sniper") {
+      for (const pair of corridorPairs(Object.values(next.quotes))) {
+        const missing = [pair.a, pair.b].filter((q) => !next.positions[q.id]);
+        if (!missing.length) continue;
+        if (held + missing.length > maxNames) continue;
+        const wid = walletIdFor(pair.a.kind);
+        if (next.wallets[wid].halted) break;
+        for (const quote of missing) {
+          const floor = minTicketUsd(quote.kind, quote.symbol);
+          const size = Math.min(bot.sizeUsd, 20, next.wallets[wid].cash * 0.18);
+          if (size < floor) {
+            pass.push(scanNote(bot, quote, "skip", `Corridor ticket under $${floor} min.`));
+            continue;
+          }
+          const before = next.fills.length;
+          next = applyFill(
+            next,
+            "buy",
+            quote.id,
+            quote.kind,
+            size,
+            "bot",
+            bot.name,
+            `${quote.symbol}: ${pair.why}`,
+            undefined,
+            bot.id,
+          );
+          if (next.fills.length === before) continue;
+          pass.push(scanNote(bot, quote, "buy", pair.why));
+          bot.lastSignal = "buy";
+          bot.lastReason = pair.why;
+          acted = true;
+          held = ownedSymbols(next, bot.id).length;
+        }
+      }
+    }
     const ranked = rankForBot(bot, universe);
     let polyCool = false;
     if (bot.scope === "poly" || ranked.some((q) => q.kind === "poly")) {
@@ -1232,7 +1268,7 @@ export function tickBots(state: DeskState): DeskState {
       polyCool = !!(lastPoly && Date.now() - lastPoly.ts < 2 * 60 * 1000);
     }
     const lastFill = next.fills.find((f) => f.botId === bot.id);
-    const fillDelayMs = bot.scope === "poly" ? 0 : 90_000;
+    const fillDelayMs = bot.scope === "poly" ? 8_000 : 90_000;
     const fillDelay =
       fillDelayMs > 0 && lastFill && Date.now() - lastFill.ts < fillDelayMs
         ? Math.max(1, Math.round((fillDelayMs - (Date.now() - lastFill.ts)) / 1000))
@@ -1265,7 +1301,7 @@ export function tickBots(state: DeskState): DeskState {
         continue;
       }
       if (!hedging && quote.horizon && newDirectional >= 1) {
-        pass.push(scanNote(bot, quote, "skip", "One new round per tick — scales in as the next 15s print."));
+        pass.push(scanNote(bot, quote, "skip", "One new directional round per 8s — corridor locks still fire."));
         continue;
       }
       if (held >= maxNames && !hedging) {
@@ -1596,6 +1632,7 @@ export function mergeQuotes(
             leg: old.leg,
             pairId: old.pairId,
             fair: old.fair,
+            clobTokenId: old.clobTokenId,
           }
         : {}),
     };

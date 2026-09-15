@@ -5,7 +5,7 @@ import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
 import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { riskView } from "./risk";
-import { fetchMarketSnapshot, refreshHeldAll, yahooOne } from "./quotes-core";
+import { fetchMarketSnapshot, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
 import { ensureTwapStream } from "./twap";
 import type { Bot, CopyEvent, DeskSnapshot, DeskState, MarketKind, ScanScope, StrategyId } from "./types";
 import { CORE_SEEDS, POLY_FALLBACK, seedQuote } from "./universe";
@@ -88,7 +88,7 @@ function defaultBots(): Bot[] {
       maxNames: 4,
       lastSignal: "idle",
       lastTickAt: 0,
-      lastReason: "Favorite-side sniper: CLOB ask 50–80¢, TWAP fair, hold to venue resolve.",
+      lastReason: "Live CLOB + TWAP. Favorite 50–80¢ snipes and 5m/15m corridor locks.",
     },
     {
       id: "bot-scan-poly-fade",
@@ -308,6 +308,7 @@ type G = typeof globalThis & {
   __coraDesk?: DeskState;
   __coraLoop?: ReturnType<typeof setInterval>;
   __coraPumpLoop?: ReturnType<typeof setInterval>;
+  __coraPolyLoop?: ReturnType<typeof setInterval>;
 };
 
 function g(): G {
@@ -539,7 +540,7 @@ export async function tickOnce(): Promise<DeskSnapshot> {
     const heldList = Object.values(s.positions).map((p) => ({ id: p.symbol, kind: p.kind }));
     const held = new Set(heldList.map((h) => h.id));
     const heldLive = await refreshHeldAll(heldList).catch(() => []);
-    const incoming = [...snap.quotes, ...heldLive];
+    const incoming = overlayLivePoly([...snap.quotes, ...heldLive]);
     s = {
       ...s,
       quotes: pruneStaleQuotes(
@@ -594,7 +595,10 @@ export async function tickHeldExitsLoop(): Promise<void> {
   if (!held.length) return;
   try {
     const fresh = await refreshHeldAll(held);
-    let next = { ...s, quotes: mergeQuotes(s.quotes, fresh) };
+    const merged = mergeQuotes(s.quotes, fresh);
+    const quotes: DeskState["quotes"] = {};
+    for (const q of overlayLivePoly(merged)) quotes[q.id] = q;
+    let next = { ...s, quotes };
     next = tickHeldExits(next);
     next = { ...next, loopAt: Date.now(), loopOk: true };
     setState(next);
@@ -603,14 +607,26 @@ export async function tickHeldExitsLoop(): Promise<void> {
   }
 }
 
+export function tickPolyFast(): void {
+  const s = getState();
+  const quotes: DeskState["quotes"] = {};
+  for (const q of overlayLivePoly(s.quotes)) quotes[q.id] = q;
+  let next = { ...s, quotes };
+  next = tickHeldExits(next);
+  next = tickBots(next);
+  setState({ ...next, loopAt: Date.now(), loopOk: true });
+}
+
 export function startDeskLoop() {
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       const gg = g();
       if (gg.__coraLoop) clearInterval(gg.__coraLoop);
       if (gg.__coraPumpLoop) clearInterval(gg.__coraPumpLoop);
+      if (gg.__coraPolyLoop) clearInterval(gg.__coraPolyLoop);
       gg.__coraLoop = undefined;
       gg.__coraPumpLoop = undefined;
+      gg.__coraPolyLoop = undefined;
     });
   }
   if (g().__coraLoop) return;
@@ -625,6 +641,9 @@ export function startDeskLoop() {
   g().__coraPumpLoop = setInterval(() => {
     void tickHeldExitsLoop();
   }, 10_000);
+  g().__coraPolyLoop = setInterval(() => {
+    tickPolyFast();
+  }, 400);
 }
 
 export function placeOrder(side: "buy" | "sell", symbol: string, notional: number, close = false) {
