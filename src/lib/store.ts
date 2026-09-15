@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   addBot,
   addSymbol,
+  deleteReport,
   loadDesk,
   placeOrder,
   removeBot,
@@ -66,5 +67,6 @@ export function useServerDesk() {
     reset: (name?: string) => run(() => resetBook({ data: { name } })),
     resume: () => run(() => resumeHalt()),
     saveReport: () => run(() => saveReport()),
+    deleteReport: (id: string) => run(() => deleteReport({ data: { id } })),
   };
 }

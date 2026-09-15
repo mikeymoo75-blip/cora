@@ -216,7 +216,7 @@ export function Desk() {
           <div className="mt-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
             <p className="font-display text-lg font-semibold">Start a fresh $1,000 test</p>
             <p className="mt-1 text-sm text-muted">
-              $800 stocks + crypto, $200 Polymarket. Saves this run. Only Scan Polymarket · 5m/15m stays on.
+              $800 stocks + crypto, $200 Polymarket. Only Scan Polymarket · 5m/15m stays on. Save a report first if you want to paste this run in chat.
             </p>
             <input
               value={resetName}
@@ -224,23 +224,43 @@ export function Desk() {
               placeholder={`Test ${(desk.tests?.length ?? 0) + 1}`}
               className="mt-3 min-h-11 w-full rounded-md bg-elevated px-3 text-sm outline-none"
             />
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 className="min-h-11 flex-1 rounded-lg bg-core font-semibold text-on"
                 onClick={() => {
+                  void remote.saveReport().then((saved) => {
+                    const text = saved?.reports?.[0]?.text;
+                    if (text) {
+                      void navigator.clipboard.writeText(text).catch(() => undefined);
+                    }
+                    return remote.reset(resetName);
+                  }).then(() => {
+                    toast("Report saved. New $1,000 test started");
+                    setResetOpen(false);
+                    setResetName("");
+                    setTab("Log");
+                  });
+                }}
+              >
+                Save report & reset
+              </button>
+              <button
+                type="button"
+                className="min-h-11 flex-1 rounded-lg bg-fg font-semibold text-bg"
+                onClick={() => {
                   void remote.reset(resetName).then(() => {
-                    toast("New $1,000 test started");
+                    toast("New $1,000 test — no report saved");
                     setResetOpen(false);
                     setResetName("");
                   });
                 }}
               >
-                Save & reset
+                Reset without report
               </button>
               <button
                 type="button"
-                className="min-h-11 flex-1 rounded-lg bg-elevated text-sm font-medium"
+                className="min-h-11 rounded-lg bg-elevated px-4 text-sm font-medium"
                 onClick={() => setResetOpen(false)}
               >
                 Cancel
@@ -350,6 +370,9 @@ export function Desk() {
               () => toast("Report copied — paste it in chat for tweaks"),
               () => toast("Could not copy — select the text instead"),
             );
+          }}
+          onDeleteReport={(id) => {
+            void remote.deleteReport(id).then(() => toast("Report deleted"));
           }}
         />
       )}
@@ -1405,9 +1428,11 @@ function CopyPane({ desk, onToggle }: { desk: DeskSnapshot; onToggle: (id: strin
 function LogPane({
   desk,
   onCopyReport,
+  onDeleteReport,
 }: {
   desk: DeskSnapshot;
   onCopyReport: (text: string) => void;
+  onDeleteReport: (id: string) => void;
 }) {
   const [logTab, setLogTab] = useState<"all" | MarketKind>("all");
   const logTabs: { id: "all" | MarketKind; label: string }[] = [
@@ -1442,14 +1467,24 @@ function LogPane({
             <li key={r.id} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-muted">{clock(r.ts)}</p>
-                <button
-                  type="button"
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-elevated px-3 text-xs font-semibold"
-                  onClick={() => onCopyReport(r.text)}
-                >
-                  <ClipboardCopy className="size-3.5" />
-                  Copy
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-elevated px-3 text-xs font-semibold"
+                    onClick={() => onCopyReport(r.text)}
+                  >
+                    <ClipboardCopy className="size-3.5" />
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete report"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-elevated text-down"
+                    onClick={() => onDeleteReport(r.id)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
               </div>
               <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted">
                 {r.text}

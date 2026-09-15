@@ -80,3 +80,10 @@ export const saveReport = createServerFn({ method: "POST" }).handler(
     return m.saveReport();
   },
 );
+
+export const deleteReport = createServerFn({ method: "POST" })
+  .validator((input: { id: string }) => input)
+  .handler(async ({ data }): Promise<DeskSnapshot> => {
+    const m = await rt();
+    return m.deleteReport(data.id);
+  });

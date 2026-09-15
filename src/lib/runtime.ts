@@ -839,6 +839,12 @@ export function saveReport() {
   return snapshot();
 }
 
+export function deleteReport(id: string) {
+  const s = getState();
+  setState({ ...s, reports: (s.reports || []).filter((r) => r.id !== id) });
+  return snapshot();
+}
+
 export function selectSymbol(id: string) {
   setState({ ...getState(), selectedId: id });
   return snapshot();
