@@ -728,12 +728,18 @@ export function resetBook(name?: string) {
   const next = blank();
   next.quotes = s.quotes;
   next.liveQuotes = s.liveQuotes;
-  next.bots = s.bots.map((b) => ({
-    ...b,
-    lastSignal: b.enabled ? "idle" : b.lastSignal,
-    lastTickAt: 0,
-    lastReason: b.enabled ? "New test — waiting for the next signal." : b.lastReason,
-  }));
+  next.bots = s.bots.map((b) => {
+    const polySniper = b.id === "bot-scan-poly";
+    return {
+      ...b,
+      enabled: polySniper,
+      lastSignal: polySniper ? "idle" : b.lastSignal,
+      lastTickAt: 0,
+      lastReason: polySniper
+        ? "New test — 5m/15m only. Waiting for the next signal."
+        : b.lastReason,
+    };
+  });
   next.copyEvents = s.copyEvents.map((e) => ({ ...e, consumed: false }));
   next.copyFetchedAt = s.copyFetchedAt;
   next.selectedId = s.selectedId;
