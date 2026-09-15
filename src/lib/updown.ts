@@ -152,13 +152,14 @@ export function updownExplain(
 
   if (pos) {
     if (!last || last <= 0) return { action: "sell", why: "Odds print died — getting out." };
-    if (last <= 0.04 || last >= 0.96) {
+    const windowOver = !!(quote.windowEnd && now >= quote.windowEnd - 500);
+    if (windowOver && (last <= 0.04 || last >= 0.96)) {
       return { action: "sell", why: `Polymarket resolved at ${Math.round(last * 100)}¢.` };
     }
-    if (quote.windowEnd && now >= quote.windowEnd - 500) {
+    if (windowOver) {
       return {
         action: "hold",
-        why: "Window ended — waiting for Polymarket to resolve (Chainlink TWAP), not our Binance print.",
+        why: "Window ended — waiting for Polymarket to resolve (Chainlink TWAP), not a mid-round 3¢ print.",
       };
     }
     if (other) {

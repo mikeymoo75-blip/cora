@@ -869,13 +869,12 @@ function HomePane({
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
               const horizon = bagHorizon(p, q);
-              const leftSec =
-                q?.windowEnd && q.windowEnd > now
-                  ? (q.windowEnd - now) / 1000
-                  : horizon
-                    ? wallClockLeft(horizon, now)
-                    : null;
-              const settling = p.kind === "poly" && horizon != null && (leftSec == null || leftSec <= 0);
+              const leftSec = q?.windowEnd
+                ? (q.windowEnd - now) / 1000
+                : horizon
+                  ? wallClockLeft(horizon, now)
+                  : null;
+              const settling = p.kind === "poly" && leftSec != null && leftSec <= 0;
               return (
                 <li key={p.symbol} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
                   <div className="flex items-start justify-between gap-2">

@@ -334,10 +334,11 @@ function clamp01(n: number) {
 /** Polymarket taker: buy the ask, sell the bid. Resolved markets pay 1¢ or 99¢ from the venue — not Binance. */
 export function paperFillPx(quote: Quote, side: "buy" | "sell"): number {
   if (quote.kind === "poly") {
+    const windowOver = !!(quote.windowEnd && Date.now() >= quote.windowEnd - 500);
     if (side === "sell") {
-      if (quote.price <= 0.04) return 0.01;
-      if (quote.price >= 0.96) return 0.99;
-      return clamp01(quote.bid || 0);
+      if (windowOver && quote.price <= 0.04) return 0.01;
+      if (windowOver && quote.price >= 0.96) return 0.99;
+      return clamp01(quote.bid || quote.price);
     }
     if (!(quote.ask && quote.ask > 0)) return 0;
     return clamp01(quote.ask);
@@ -374,7 +375,12 @@ export function applyFill(
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return s0;
     qty = Math.min(qty, pos.qty);
-    if (quote.kind === "poly" && (quote.price <= 0.04 || quote.price >= 0.96)) {
+    if (
+      quote.kind === "poly" &&
+      quote.windowEnd &&
+      Date.now() >= quote.windowEnd - 500 &&
+      (quote.price <= 0.04 || quote.price >= 0.96)
+    ) {
       qty = pos.qty;
     }
   } else {
