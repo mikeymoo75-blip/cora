@@ -462,14 +462,8 @@ export async function fetchUpDownRounds(): Promise<Quote[]> {
         const [upTok, dnTok] = tokens;
         if (!upTok || !dnTok) return;
         const [restUp, restDn] = await Promise.all([clobTop(upTok), clobTop(dnTok)]);
-        const upBook =
-          clobLive(upTok, 8000) ||
-          restUp ||
-          gammaBook(m, "up");
-        const dnBook =
-          clobLive(dnTok, 8000) ||
-          restDn ||
-          gammaBook(m, "down");
+        const upBook = clobLive(upTok, 8000) || restUp;
+        const dnBook = clobLive(dnTok, 8000) || restDn;
         if (!upBook || !dnBook) return;
         const lookback = Number((m as { cryptoMarketConfig?: { twapLookbackSeconds?: number } }).cryptoMarketConfig?.twapLookbackSeconds) || 60;
         const twapSpot = twapNow(w.asset, lookback);

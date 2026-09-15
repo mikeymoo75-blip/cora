@@ -1336,7 +1336,26 @@ export function tickBots(state: DeskState): DeskState {
           bought += 1;
           held = ownedSymbols(next, bot.id).length;
         }
-        if (bought === 0 && missing.length === 2) continue;
+        if (bought > 0 && bought < missing.length) {
+          const opened = missing.find((q) => next.positions[q.id]);
+          if (opened) {
+            const pos = next.positions[opened.id]!;
+            next = applyFill(
+              next,
+              "sell",
+              opened.id,
+              opened.kind,
+              pos.qty * (opened.bid || opened.price || pos.avg),
+              "bot",
+              bot.name,
+              `${opened.symbol}: Pair lock missed the other leg — flattening. Not a $1 lock.`,
+              undefined,
+              bot.id,
+            );
+            held = ownedSymbols(next, bot.id).length;
+            pass.push(scanNote(bot, opened, "sell", "Pair lock missed the other leg — flattening."));
+          }
+        }
       }
     }
     const ranked = rankForBot(bot, universe);
