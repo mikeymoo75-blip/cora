@@ -15,6 +15,7 @@ import {
 import { toast, Toaster } from "sonner";
 import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
+import { positionMark } from "@/lib/engine";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
@@ -883,9 +884,7 @@ function HomePane({
               const end = p.windowEnd ?? (p.windowStart && horizon ? p.windowStart + (horizon === "15m" ? 900_000 : 300_000) : undefined);
               const leftSec = end != null ? (end - now) / 1000 : null;
               const settling = end != null && now >= end;
-              const live = q?.price ?? p.avg;
-              const resolved = live <= 0.04 || live >= 0.96;
-              const mark = settling && !resolved && p.closedMark ? p.closedMark : live;
+              const mark = positionMark(p, q, now);
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
               const winning = mtm > 0.05 && !settling;

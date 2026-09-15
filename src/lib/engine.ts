@@ -163,11 +163,17 @@ export function walletEquity(state: DeskState, id: WalletId): number {
   let eq = cash;
   for (const p of Object.values(state.positions || {})) {
     if (walletIdFor(p.kind) !== id) continue;
-    const q = state.quotes[p.symbol];
-    if (!q) continue;
-    eq += p.qty * q.price;
+    eq += p.qty * positionMark(p, state.quotes[p.symbol]);
   }
   return eq;
+}
+
+/** Live mark, or frozen close if this round's clock already hit 0:00. */
+export function positionMark(p: Position, q?: Quote, now = Date.now()): number {
+  const live = q?.price && q.price > 0 ? q.price : 0;
+  const settling = p.kind === "poly" && !!p.windowEnd && now >= p.windowEnd;
+  if (settling) return p.closedMark || p.avg;
+  return live || p.avg;
 }
 
 export function markToMarket(
@@ -187,9 +193,7 @@ export function walletViews(state: DeskState): WalletView[] {
     let unrealizedPnl = 0;
     for (const p of Object.values(s.positions)) {
       if (walletIdFor(p.kind) !== id) continue;
-      const q = s.quotes[p.symbol];
-      if (!q) continue;
-      unrealizedPnl += (q.price - p.avg) * p.qty;
+      unrealizedPnl += (positionMark(p, s.quotes[p.symbol]) - p.avg) * p.qty;
     }
     const equity = walletEquity(s, id);
     return {
@@ -1536,15 +1540,13 @@ export function tickHeldExits(state: DeskState): DeskState {
         ...next.positions,
         [pos.symbol]: {
           ...pos,
-          peak: Math.max(pos.peak, quote.price),
+          peak: windowOver ? pos.peak : Math.max(pos.peak, quote.price),
           windowStart: pos.windowStart || quote.windowStart,
           windowEnd: pos.windowEnd || quote.windowEnd,
           horizon: pos.horizon || quote.horizon,
           asset: pos.asset || quote.asset,
           leg: pos.leg || quote.leg,
-          closedMark:
-            pos.closedMark ||
-            (windowOver && quote.price > 0 ? quote.price : undefined),
+          closedMark: pos.closedMark || (windowOver && quote.price > 0 ? quote.price : undefined),
         },
       },
     };
