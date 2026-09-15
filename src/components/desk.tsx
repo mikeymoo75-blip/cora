@@ -32,7 +32,7 @@ import type {
   StrategyId,
   WalletView,
 } from "@/lib/types";
-import { UPDOWN_ORDER, isLiveWindow, wallClockLeft, windowBounds } from "@/lib/updown";
+import { UPDOWN_ORDER, currentWindows, isCurrentRound, wallClockLeft, windowBounds } from "@/lib/updown";
 import { SCOPE_COPY, STRATEGY_COPY } from "@/lib/universe";
 
 function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
@@ -476,24 +476,30 @@ function RoundBoard({
     down?: Quote;
   };
   const map = new Map<string, Round>();
+  for (const w of currentWindows(now)) {
+    const live = windowBounds(w.horizon, now);
+    if (Math.abs(w.windowStart - live.start) > 2000) continue;
+    const key = `${w.asset}-${w.horizon}`;
+    if (!map.has(key)) map.set(key, { key, asset: w.asset, horizon: w.horizon });
+  }
   for (const q of quotes) {
     if (!q.horizon || !q.asset) continue;
-    if (!isLiveWindow(q, now)) continue;
     const key = `${q.asset}-${q.horizon}`;
-    const row = map.get(key) || { key, asset: q.asset, horizon: q.horizon };
+    if (!map.has(key)) continue;
+    const row = map.get(key)!;
     const liveEnd = windowBounds(q.horizon, now).end;
-    const closer = (a?: Quote, b?: Quote) => {
-      if (!a) return b;
+    const prefer = (a?: Quote, b?: Quote) => {
       if (!b) return a;
+      if (!a) return b;
+      const aCur = isCurrentRound(a, now) ? 0 : 1;
+      const bCur = isCurrentRound(b, now) ? 0 : 1;
+      if (aCur !== bCur) return aCur < bCur ? a : b;
       return Math.abs((b.windowEnd || 0) - liveEnd) < Math.abs((a.windowEnd || 0) - liveEnd) ? b : a;
     };
-    if (q.leg === "down") row.down = closer(row.down, q);
-    else row.up = closer(row.up, q);
-    map.set(key, row);
+    if (q.leg === "down") row.down = prefer(row.down, q);
+    else row.up = prefer(row.up, q);
   }
-  const rounds = [...map.values()]
-    .filter((r) => r.up)
-    .sort((a, b) => {
+  const rounds = [...map.values()].sort((a, b) => {
       const ah = a.horizon === "5m" ? 0 : 1;
       const bh = b.horizon === "5m" ? 0 : 1;
       if (ah !== bh) return ah - bh;
@@ -532,17 +538,17 @@ function RoundBoard({
       return () => clearTimeout(t);
     }
   }, [stamp, leading0, open0, spot0]);
-  if (!featured || !q0) return null;
+  if (!featured) return null;
 
-  const q = q0;
+  const q = featured.up;
   const total = featured.horizon === "15m" ? 900 : 300;
   const left = wallClockLeft(featured.horizon, now);
   const p = Math.max(0, Math.min(1, left / total));
-  const upPx = q.price;
+  const upPx = q?.price ?? 0.5;
   const dnPx = featured.down?.price ?? 1 - upPx;
-  const fair = q.fair ?? 0.5;
-  const spot = q.spot || 0;
-  const open = q.openPx || 0;
+  const fair = q?.fair ?? 0.5;
+  const spot = q?.spot || 0;
+  const open = q?.openPx || 0;
   if (spot > 0) {
     const cur = shownRef.current || spot;
     shownRef.current = Math.abs(spot - cur) < 0.02 ? spot : cur + (spot - cur) * 0.28;
@@ -551,7 +557,7 @@ function RoundBoard({
   const delta = open ? ((shown - open) / open) * 100 : 0;
   const leadingUp = shown >= open;
   const edge = Math.abs(fair - upPx);
-  const upPos = q.id ? positions[q.id] : undefined;
+  const upPos = q?.id ? positions[q.id] : undefined;
   const dnPos = featured.down?.id ? positions[featured.down.id] : undefined;
   const hedged = !!(upPos && dnPos);
   const tape = fills
@@ -562,7 +568,7 @@ function RoundBoard({
     .slice(0, 6);
   const urgent = left < 30;
   const flash = tape[0];
-  const flashUp = flash?.side === "buy" && flash.symbol === q.id && now - flash.ts < 8000;
+  const flashUp = !!(q && flash?.side === "buy" && flash.symbol === q.id && now - flash.ts < 8000);
   const flashDn =
     flash?.side === "buy" && featured.down && flash.symbol === featured.down.id && now - flash.ts < 8000;
 
@@ -576,10 +582,12 @@ function RoundBoard({
       </div>
       <div className="mb-3 flex flex-wrap gap-2">
         {rounds.map((r) => {
-          const rq = r.up!;
           const rLeft = wallClockLeft(r.horizon, now);
-          const heldHere = !!(positions[rq.id] || (r.down && positions[r.down.id]));
-          const rLead = (rq.spot || 0) >= (rq.openPx || 0);
+          const heldHere = !!(
+            (r.up && positions[r.up.id]) ||
+            (r.down && positions[r.down.id])
+          );
+          const rLead = (r.up?.spot || 0) >= (r.up?.openPx || 0);
           return (
             <button
               key={r.key}
@@ -661,11 +669,11 @@ function RoundBoard({
         </div>
         <div className="mt-4 overflow-hidden rounded-xl bg-elevated px-1 pt-2 pb-1">
           <PriceRace
-            spark={q.spark}
+            spark={q?.spark || []}
             open={open}
             spot={shown}
-            windowStart={q.windowStart}
-            windowEnd={q.windowEnd}
+            windowStart={q?.windowStart}
+            windowEnd={q?.windowEnd}
             now={now}
           />
           <div className="mt-1 flex justify-between px-2 pb-1 text-xs text-muted">
@@ -677,7 +685,7 @@ function RoundBoard({
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <button
             type="button"
-            onClick={() => onBuy(q.id, 20)}
+            onClick={() => q && onBuy(q.id, 20)}
             className={cn(
               "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
               leadingUp ? "bg-primary/15 race-lead-up" : "bg-elevated",
