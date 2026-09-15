@@ -452,8 +452,9 @@ export function applyFill(
     const prev = positions[symbol];
     const cost = gross + fees.total;
     const bounds = quote.horizon ? windowBounds(quote.horizon) : null;
-    const windowStart = quote.windowStart || bounds?.start;
-    const windowEnd = quote.windowEnd || bounds?.end;
+    const liveRound = !!(quote.horizon && isCurrentRound(quote));
+    const windowStart = quote.windowStart || (liveRound ? bounds?.start : undefined);
+    const windowEnd = quote.windowEnd || (liveRound ? bounds?.end : undefined);
     if (!prev) {
       positions[symbol] = {
         symbol,

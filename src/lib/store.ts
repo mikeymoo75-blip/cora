@@ -31,7 +31,7 @@ export function useServerDesk() {
     void refresh();
     const id = setInterval(() => {
       void refresh();
-    }, 4000);
+    }, 800);
     return () => clearInterval(id);
   }, [refresh]);
 
