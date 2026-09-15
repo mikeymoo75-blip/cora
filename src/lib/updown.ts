@@ -100,6 +100,18 @@ export function isLiveWindow(q: { horizon?: string; windowEnd?: number }, at = D
   return q.windowEnd >= at - 12_000;
 }
 
+/** Buy path: only the unix window that is actually open right now. */
+export function isCurrentRound(
+  q: { horizon?: string; windowStart?: number; windowEnd?: number },
+  at = Date.now(),
+): boolean {
+  if (!q.horizon) return false;
+  const { start, end } = windowBounds(q.horizon, at);
+  if (q.windowStart && Math.abs(q.windowStart - start) <= 2000) return true;
+  if (q.windowEnd && Math.abs(q.windowEnd - end) <= 2000) return at < end;
+  return false;
+}
+
 /** Last-minute log return + acceleration (change in 1m return). */
 export function momFromCloses(closes: number[]): { mom: number; accel: number } {
   const n = closes.length;
@@ -205,6 +217,10 @@ export function updownExplain(
   if (!(quote.ask && quote.ask > 0) || (quote.askSize || 0) < 5) {
     return { action: "hold", why: "No CLOB ask with size — not filling a ghost book." };
   }
+  if (!isCurrentRound(quote, now)) {
+    return { action: "hold", why: "Not the live window — leftover or next round. No new tickets." };
+  }
+  if (elapsed < 0) return { action: "hold", why: "Next round is not open yet." };
   if (elapsed < 15) return { action: "hold", why: "First 15s of the round — book is noisy." };
   if (tau <= 0) return { action: "hold", why: "Window is closed — no new tickets." };
   if (tau < 90) {

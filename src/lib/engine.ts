@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { corridorPairs, updownExplain } from "./updown";
+import { corridorPairs, isCurrentRound, updownExplain } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -387,6 +387,8 @@ export function applyFill(
     }
   } else {
     if (quote.kind === "poly") {
+      if (quote.horizon && !isCurrentRound(quote)) return s0;
+      if (quote.windowEnd && Date.now() >= quote.windowEnd) return s0;
       const depth = (quote.askSize || 0) * (quote.ask || 0);
       if (depth < 12) return s0;
       if (notional > depth) qty = depth / px;
@@ -880,7 +882,7 @@ function scanQuotes(state: DeskState, bot: Bot): Quote[] {
   }
   if (bot.scope === "poly" || bot.scope === ("pump" as ScanScope)) {
     const live = all.filter((q) => q.kind === "poly" && q.live);
-    if (bot.strategy === "sniper") return live.filter((q) => q.horizon);
+    if (bot.strategy === "sniper") return live.filter((q) => q.horizon && isCurrentRound(q));
     return live;
   }
   if (bot.scope === "crypto") {

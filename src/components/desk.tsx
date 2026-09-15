@@ -872,7 +872,7 @@ function HomePane({
             {holdings.map((p) => {
               const q = desk.quotes[p.symbol];
               const horizon = p.horizon || bagHorizon(p, q);
-              const end = p.windowEnd || q?.windowEnd;
+              const end = p.windowEnd;
               const leftSec = end != null ? (end - now) / 1000 : horizon ? wallClockLeft(horizon, now) : null;
               const settling = end != null && now >= end;
               const live = q?.price ?? p.avg;
@@ -909,7 +909,7 @@ function HomePane({
                     >
                       {settling ? "0:00" : clockLeft(leftSec || 0)}
                       <span className="ml-2 text-sm font-medium text-muted">
-                        {settling ? "settling" : "left"}
+                        {settling ? "last round · waiting 0/1" : "left"}
                       </span>
                     </p>
                   )}
