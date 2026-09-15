@@ -900,6 +900,7 @@ function HomePane({
                 (p.leg === "down" ? !coinUp : p.leg === "up" ? coinUp : false);
               const winning = sideHit && !settling;
               const settleWin = settling && sideHit;
+              const settleLose = settling && spot > 0 && openPx > 0 && !sideHit;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
@@ -908,12 +909,18 @@ function HomePane({
                   className={cn(
                     "relative overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]",
                     (winning || settleWin) && "bag-win",
+                    settleLose && "bag-lose",
                     fresh && "bag-new",
                   )}
                 >
                   {settleWin && (
                     <span className="bag-winner-banner" aria-hidden>
                       WINNER
+                    </span>
+                  )}
+                  {settleLose && (
+                    <span className="bag-loser-banner" aria-hidden>
+                      LOSER
                     </span>
                   )}
                   <div className="flex items-start justify-between gap-2">

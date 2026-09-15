@@ -236,27 +236,44 @@
     transform: translate3d(0, -4px, 0) scale(1.04);
   }
 }
-.bag-winner-banner {
+.bag-winner-banner,
+.bag-loser-banner {
   pointer-events: none;
   position: absolute;
   left: 0;
   right: 0;
-  top: 8%;
-  height: 58%;
+  top: 10%;
+  height: 48%;
   z-index: 2;
   display: grid;
   place-items: center;
   font-family: var(--font-display);
-  font-size: clamp(2.1rem, 6vw, 3rem);
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.28em;
+  animation: bag-winner-glow 1.4s ease-in-out infinite;
+}
+.bag-winner-banner {
   color: var(--color-primary);
   text-shadow:
     0 0 12px color-mix(in srgb, var(--color-primary) 80%, white),
     0 0 28px color-mix(in srgb, var(--color-primary) 70%, transparent),
     0 0 52px color-mix(in srgb, var(--color-primary) 55%, transparent);
-  transform: rotate(-14deg);
-  animation: bag-winner-glow 1.4s ease-in-out infinite;
+}
+.bag-loser-banner {
+  color: var(--color-down);
+  text-shadow:
+    0 0 12px color-mix(in srgb, var(--color-down) 80%, white),
+    0 0 28px color-mix(in srgb, var(--color-down) 70%, transparent),
+    0 0 52px color-mix(in srgb, var(--color-down) 55%, transparent);
+}
+.bag-lose {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-down) 45%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-down) 20%, transparent),
+    0 0 24px -6px color-mix(in srgb, var(--color-down) 40%, transparent);
 }
 @keyframes bag-winner-glow {
   0%,
@@ -273,7 +290,8 @@
   .bag-win,
   .bag-win::before,
   .bag-win::after,
-  .bag-winner-banner {
+  .bag-winner-banner,
+  .bag-loser-banner {
     animation: none;
   }
 }
