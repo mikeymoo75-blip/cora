@@ -817,12 +817,12 @@ function HomePane({
               const mtm = (mark - p.avg) * p.qty;
               const value = p.qty * mark;
               const leftSec = q?.windowEnd ? (q.windowEnd - now) / 1000 : null;
-              const roundClock =
-                leftSec == null
-                  ? null
-                  : leftSec <= 0
-                    ? "settling"
-                    : `${clockLeft(leftSec)} left`;
+              const settling = p.kind === "poly" && (leftSec == null || leftSec <= 0);
+              const roundClock = settling
+                ? "settling"
+                : leftSec != null
+                  ? `${clockLeft(leftSec)} left`
+                  : null;
               return (
                 <li key={p.symbol} className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
                   <div className="flex items-baseline justify-between gap-2">
