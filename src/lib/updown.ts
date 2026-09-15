@@ -149,7 +149,6 @@ export function updownExplain(
   const total = quote.horizon === "15m" ? 900 : 300;
   const fair = quote.fair ?? 0.5;
   const thisFair = quote.leg === "down" ? 1 - fair : fair;
-  const edge = thisFair - pay;
 
   if (pos) {
     if (!last || last <= 0) return { action: "sell", why: "Odds print died — getting out." };
@@ -175,15 +174,27 @@ export function updownExplain(
   }
 
   if (!quote.live || !quote.openPx || !quote.spot) {
-    return { action: "hold", why: "Waiting on spot vs Price-to-Beat." };
+    return { action: "hold", why: "Waiting on Chainlink TWAP vs Price-to-Beat (not Binance)." };
   }
   if (!(quote.ask && quote.ask > 0) || (quote.askSize || 0) < 5) {
     return { action: "hold", why: "No CLOB ask with size — not filling a ghost book." };
   }
   if (elapsed < 15) return { action: "hold", why: "First 15s of the round — book is noisy." };
   if (tau <= 0) return { action: "hold", why: "Window is closed — no new tickets." };
-  if (tau < 60) {
+  if (tau < 90) {
     return { action: "hold", why: `Last ${Math.ceil(tau)}s — no new tickets. Open bags hold to venue resolve.` };
+  }
+  const mid = last;
+  const blended = 0.55 * thisFair + 0.45 * mid;
+  const edge = blended - pay;
+  if (!other && (pay < 0.5 || pay > 0.8)) {
+    return {
+      action: "hold",
+      why: `Favorite-side only (ask 50–80¢). Ask ${Math.round(pay * 100)}¢ is ${pay < 0.5 ? "the underdog — book usually wins that fight" : "too locked, fee eats the rest"}.`,
+    };
+  }
+  if (!other && blended < 0.5) {
+    return { action: "hold", why: "TWAP fair is against this leg — not fading the book." };
   }
   if (pay < 0.08 || pay > 0.92) {
     return { action: "hold", why: `Ask already at ${Math.round(pay * 100)}¢ — no misprice left.` };
@@ -199,19 +210,19 @@ export function updownExplain(
   if (edge < minEdge) {
     return {
       action: "hold",
-      why: `No edge. Fair ${Math.round(thisFair * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (${(edge * 100).toFixed(1)}¢). Needs +${Math.round(minEdge * 100)}¢.`,
+      why: `No edge. TWAP fair ${Math.round(blended * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (${(edge * 100).toFixed(1)}¢). Needs +${Math.round(minEdge * 100)}¢.`,
     };
   }
-  if (edge > 0.2) {
+  if (edge > 0.15) {
     return {
       action: "hold",
-      why: `Ask is ${Math.round(edge * 100)}¢ under our fair — that's our model being wrong, not a gift. Skip.`,
+      why: `Ask is ${Math.round(edge * 100)}¢ under TWAP fair — too cheap, faster bots already passed. Skip.`,
     };
   }
   const spotDelta = ((quote.spot - quote.openPx) / quote.openPx) * 100;
   const hedge = other ? "Hedge: " : "";
   return {
     action: "buy",
-    why: `${hedge}${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: fair ${Math.round(thisFair * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
+    why: `${hedge}${quote.asset} ${quote.horizon} ${quote.leg?.toUpperCase()}: TWAP fair ${Math.round(blended * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (edge +${(edge * 100).toFixed(1)}¢). Spot ${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(3)}% vs open. ${Math.max(0, Math.ceil(tau))}s left of ${total / 60}m.`,
   };
 }

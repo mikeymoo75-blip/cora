@@ -211,7 +211,7 @@ export function Desk() {
           <div className="mt-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
             <p className="font-display text-lg font-semibold">Start a fresh $1,000 test</p>
             <p className="mt-1 text-sm text-muted">
-              $800 stocks + crypto, $200 Polymarket. Saves this run. All bots start off.
+              $800 stocks + crypto, $200 Polymarket. Saves this run. Only Scan Polymarket · 5m/15m stays on.
             </p>
             <input
               value={resetName}

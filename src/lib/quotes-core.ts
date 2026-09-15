@@ -1,6 +1,7 @@
 import { CORE_SEEDS, POLY_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
-import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses, UPDOWN_ASSETS } from "./updown";
+import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses } from "./updown";
+import { ensureTwapStream, twapCloses, twapNow, twapOpen } from "./twap";
 
 async function fetchJson(
   url: string,
@@ -413,14 +414,8 @@ async function poolMap<T>(items: T[], n: number, fn: (item: T) => Promise<void>)
 }
 
 async function fetchUpDownRounds(): Promise<Quote[]> {
+  ensureTwapStream();
   const windows = currentWindows();
-  const tapes = new Map<string, SpotTape>();
-  await Promise.all(
-    UPDOWN_ASSETS.map(async (a) => {
-      const tape = a.hl ? await fetchHlTape(a.hl) : await fetchBinanceTape(a.binance);
-      if (tape) tapes.set(a.asset, tape);
-    }),
-  );
   const out: Quote[] = [];
   await poolMap(windows, 6, async (w) => {
       try {
@@ -437,16 +432,15 @@ async function fetchUpDownRounds(): Promise<Quote[]> {
         if (!upTok || !dnTok) return;
         const [upBook, dnBook] = await Promise.all([clobTop(upTok), clobTop(dnTok)]);
         if (!upBook || !dnBook) return;
-        const tape = tapes.get(w.asset);
-        const open = tape ? openFromTape(tape.rows, w.windowStart, w.horizon) : 0;
-        const spot = tape?.spot || 0;
-        const closes = tape ? tape.rows.map((r) => r.c) : [];
+        const lookback = Number((m as { cryptoMarketConfig?: { twapLookbackSeconds?: number } }).cryptoMarketConfig?.twapLookbackSeconds) || 60;
+        const open = twapOpen(w.asset, w.windowStart, lookback);
+        const spot = twapNow(w.asset, lookback);
+        const closes = twapCloses(w.asset, w.windowStart, lookback);
         const sigma1m = sigmaFromCloses(closes);
         const { mom } = momFromCloses(closes);
         const tau = Math.max(0, (w.windowEnd - Date.now()) / 1000);
         const fair = spot && open ? fairUp(spot, open, sigma1m, tau, mom) : 0.5;
-        const fine = tape && tape.fine.length >= 8 ? tape.fine : tape?.rows;
-        const spark = tape && open ? windowCloses(fine || tape.rows, w.windowStart, open, spot) : [spot || upBook.ask];
+        const spark = closes.length ? closes : [spot || upBook.ask];
         const vol = Number(m.volume24hr ?? m.volume ?? 0);
         const upId = `poly:${m.id}:up`;
         const downId = `poly:${m.id}:down`;
