@@ -1000,6 +1000,10 @@ function HomePane({
               const settleWin = settling && hit === true;
               const settleLose = settling && hit === false;
               const liveLose = !settling && hit === false;
+              const pickLabel = leg === "down" ? "DOWN" : leg === "up" ? "UP" : "";
+              const coinLabel = spot > 0 && openPx > 0 ? (spot < openPx ? "DOWN" : "UP") : "";
+              const raceWith = hit === true;
+              const raceAgainst = hit === false;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
@@ -1018,24 +1022,34 @@ function HomePane({
                   {settleLose && (
                     <span className="bag-loser-banner">LOSER</span>
                   )}
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className={cn("font-display text-xl font-semibold", (winning || settleWin) && "text-primary")}>
+                      <p className={cn("font-display text-xl font-semibold", raceWith && "text-primary", raceAgainst && "text-down")}>
                         {bagTitle(p, q)}
                       </p>
-                      <p className="text-xs text-muted">
-                        {kindLabel(p.kind)}
-                        {horizon ? ` · ${horizon}` : ""}
-                        {spot > 0 && openPx > 0
-                          ? spot < openPx
-                            ? " · coin below open"
-                            : " · coin above open"
-                          : ""}
+                      {p.kind === "poly" && pickLabel ? (
+                        <p
+                          className={cn(
+                            "mt-1 text-sm font-semibold leading-snug",
+                            raceWith ? "text-primary" : raceAgainst ? "text-down" : "text-muted",
+                          )}
+                        >
+                          {coinLabel
+                            ? `You picked ${pickLabel}. Coin is ${coinLabel} — ${raceWith ? "with you" : "against you"}.`
+                            : `You picked ${pickLabel}. Waiting on Price-to-Beat.`}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted">
+                          {kindLabel(p.kind)}
+                          {horizon ? ` · ${horizon}` : ""}
+                        </p>
+                      )}
+                      <p className="mt-1 font-mono text-xs text-muted">
+                        Book {signedMoney(mtm)}
+                        {settling ? " frozen" : " if sold now"}
+                        {" · not cash until 0/1"}
                       </p>
                     </div>
-                    <p className={cn("font-mono text-lg font-semibold tabular-nums", signedClass(mtm))}>
-                      {signedMoney(mtm)}
-                    </p>
                   </div>
                   {showClock && (
                     <p
