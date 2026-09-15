@@ -1488,8 +1488,9 @@ export function tickHeldExits(state: DeskState): DeskState {
     };
     const actor = bot || dummy;
     const other = quote.pairId ? next.positions[quote.pairId] : undefined;
-    if (pickSignal(actor, quote, marked, other) !== "sell") continue;
-    const reason = `${quote.symbol}: ${whyTrade(actor, quote, "sell")}`;
+    const explained = explainSignal(actor, quote, marked, other);
+    if (explained.action !== "sell") continue;
+    const reason = `${quote.symbol}: ${explained.why}`;
     next = applyFill(
       next,
       "sell",

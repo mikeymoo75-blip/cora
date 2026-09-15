@@ -168,14 +168,9 @@ export function updownExplain(
         why: `Hedged ${quote.asset} ${quote.horizon}. Holding both sides to venue resolve. Fair Up ${(fair * 100).toFixed(0)}¢.`,
       };
     }
-    const mark = quote.bid && quote.bid > 0 ? quote.bid : last;
-    const fromEntryC = (mark - pos.avg) * 100;
-    if (fromEntryC <= -10) {
-      return { action: "sell", why: `Unhedged stop — bid is down ${Math.abs(fromEntryC).toFixed(1)}¢.` };
-    }
     return {
       action: "hold",
-      why: `Watching ${quote.symbol}. Fair ${(thisFair * 100).toFixed(0)}¢ vs ask ${((quote.ask || last) * 100).toFixed(0)}¢. ${tau > 0 ? `${Math.ceil(tau)}s left.` : "Waiting on resolve."}`,
+      why: `Watching ${quote.symbol} to Polymarket resolve. Fair ${(thisFair * 100).toFixed(0)}¢ vs ask ${((quote.ask || last) * 100).toFixed(0)}¢. ${tau > 0 ? `${Math.ceil(tau)}s left.` : "Waiting on Chainlink."}`,
     };
   }
 
@@ -187,8 +182,8 @@ export function updownExplain(
   }
   if (elapsed < 15) return { action: "hold", why: "First 15s of the round — book is noisy." };
   if (tau <= 0) return { action: "hold", why: "Window is closed — no new tickets." };
-  if (tau < 15) {
-    return { action: "hold", why: `Last ${Math.ceil(tau)}s — no new tickets. Open bags hold to settle.` };
+  if (tau < 60) {
+    return { action: "hold", why: `Last ${Math.ceil(tau)}s — no new tickets. Open bags hold to venue resolve.` };
   }
   if (pay < 0.08 || pay > 0.92) {
     return { action: "hold", why: `Ask already at ${Math.round(pay * 100)}¢ — no misprice left.` };
@@ -205,6 +200,12 @@ export function updownExplain(
     return {
       action: "hold",
       why: `No edge. Fair ${Math.round(thisFair * 100)}¢ vs ask ${Math.round(pay * 100)}¢ (${(edge * 100).toFixed(1)}¢). Needs +${Math.round(minEdge * 100)}¢.`,
+    };
+  }
+  if (edge > 0.2) {
+    return {
+      action: "hold",
+      why: `Ask is ${Math.round(edge * 100)}¢ under our fair — that's our model being wrong, not a gift. Skip.`,
     };
   }
   const spotDelta = ((quote.spot - quote.openPx) / quote.openPx) * 100;
