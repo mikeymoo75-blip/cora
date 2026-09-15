@@ -174,14 +174,23 @@ function honestBookPx(px?: number): number {
   return px;
 }
 
+export function positionWindowEnd(p: Position): number | undefined {
+  if (p.windowEnd) return p.windowEnd;
+  if (p.windowStart && p.horizon) return p.windowStart + (p.horizon === "15m" ? 900_000 : 300_000);
+  return undefined;
+}
+
+export function isSettling(p: Position, now = Date.now()): boolean {
+  const end = positionWindowEnd(p);
+  return p.kind === "poly" && !!end && now >= end;
+}
+
 /** Live mark, or frozen close if this round's clock already hit 0:00. */
 export function positionMark(p: Position, q?: Quote, now = Date.now()): number {
-  const live = honestBookPx(q?.price);
-  const settling = p.kind === "poly" && !!p.windowEnd && now >= p.windowEnd;
-  if (settling) {
+  if (isSettling(p, now)) {
     return honestBookPx(p.closedMark) || honestBookPx(p.lastMark) || p.avg;
   }
-  return live || honestBookPx(p.lastMark) || p.avg;
+  return honestBookPx(q?.price) || honestBookPx(p.lastMark) || p.avg;
 }
 
 export function markToMarket(
@@ -1572,7 +1581,8 @@ export function tickHeldExits(state: DeskState): DeskState {
 
   for (const pos of Object.values(next.positions)) {
     const quote = next.quotes[pos.symbol];
-    const windowOver = !!(pos.windowEnd && Date.now() >= pos.windowEnd);
+    const windowOver = isSettling(pos);
+    if (windowOver && pos.closedMark && pos.settleSide && pos.lastSpot && pos.lastOpen) continue;
     const last = honestBookPx(quote?.price) || pos.lastMark;
     if (windowOver || last) {
       next = {
@@ -1609,7 +1619,7 @@ export function tickHeldExits(state: DeskState): DeskState {
           ...stamped,
           peak: windowOver ? stamped.peak : Math.max(stamped.peak, honestBookPx(quote.price) || stamped.peak),
           windowStart: stamped.windowStart || quote.windowStart,
-          windowEnd: stamped.windowEnd || quote.windowEnd,
+          windowEnd: stamped.windowEnd || quote.windowEnd || positionWindowEnd(stamped),
           horizon: stamped.horizon || quote.horizon,
           asset: stamped.asset || quote.asset,
           leg: stamped.leg || quote.leg,

@@ -1,6 +1,6 @@
 import { CORE_SEEDS, POLY_FALLBACK, STOCKS, seedQuote } from "./universe";
 import type { Quote } from "./types";
-import { currentWindows, fairUp, momFromCloses, parsePolyId, sigmaFromCloses, UPDOWN_ASSETS } from "./updown";
+import { currentWindows, fairUp, isCurrentRound, momFromCloses, parsePolyId, sigmaFromCloses, UPDOWN_ASSETS } from "./updown";
 import { ensureTwapStream, twapCloses, twapNow, twapOpen } from "./twap";
 import { clobLive, ensureClobStream } from "./clob-ws";
 
@@ -765,6 +765,9 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
   if (tokens.length) ensureClobStream(tokens);
   return rows.map((q) => {
     if (q.kind !== "poly") return q;
+    const expired =
+      (q.windowEnd != null && Date.now() >= q.windowEnd) || (q.horizon ? !isCurrentRound(q) : false);
+    if (expired) return q;
     let next = q;
     if (q.clobTokenId) {
       const live = clobLive(q.clobTokenId, 5000);
@@ -783,7 +786,6 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
       }
     }
     if (next.horizon && next.asset) {
-      if (next.windowEnd && Date.now() >= next.windowEnd) return next;
       const tSpot = twapNow(next.asset, 60);
       const tOpen = next.windowStart ? twapOpen(next.asset, next.windowStart, 60) : 0;
       const closes = tSpot && next.windowStart ? twapCloses(next.asset, next.windowStart, 60) : [];

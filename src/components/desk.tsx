@@ -15,7 +15,7 @@ import {
 import { toast, Toaster } from "sonner";
 import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
-import { positionMark } from "@/lib/engine";
+import { isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
@@ -802,8 +802,7 @@ function bagSettledUp(p: Position, spot: number, open: number): boolean | null {
 }
 
 function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; open: number } {
-  const settling = !!(p.windowEnd && Date.now() >= p.windowEnd);
-  if (settling) {
+  if (isSettling(p)) {
     return {
       spot: p.lastSpot || 0,
       open: p.lastOpen || 0,
@@ -853,11 +852,18 @@ function HomePane({
   const [notional, setNotional] = useState(25);
   const [picked, setPicked] = useState("NVDA");
   const [, tick] = useState(0);
+  const settleFreeze = useRef<
+    Record<string, { mark: number; mtm: number; hit: boolean | null; end: number }>
+  >({});
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 250);
     return () => clearInterval(id);
   }, []);
   const now = Date.now();
+  const openIds = new Set(holdings.map((p) => p.symbol));
+  for (const id of Object.keys(settleFreeze.current)) {
+    if (!openIds.has(id)) delete settleFreeze.current[id];
+  }
 
   return (
     <div className="space-y-6 px-4 py-5 md:px-8">
@@ -941,20 +947,32 @@ function HomePane({
             {holdings.map((p) => {
               const q = desk.quotes[p.symbol];
               const horizon = p.horizon || q?.horizon || bagHorizon(p, q);
-              const end = p.windowEnd ?? (p.windowStart && horizon ? p.windowStart + (horizon === "15m" ? 900_000 : 300_000) : undefined);
+              const end = positionWindowEnd(p) ?? (horizon ? p.windowStart ? p.windowStart + (horizon === "15m" ? 900_000 : 300_000) : undefined : undefined);
               const leftSec = end != null ? (end - now) / 1000 : null;
-              const settling = end != null && now >= end;
-              const mark = positionMark(p, q, now);
-              const mtm = (mark - p.avg) * p.qty;
-              const value = p.qty * mark;
+              const settling = isSettling(p, now) || (end != null && now >= end);
+              let mark = positionMark(p, q, now);
+              let mtm = (mark - p.avg) * p.qty;
               const race = bagRace(desk, p, q);
               const spot = race.spot;
               const openPx = race.open;
               const leg = bagLeg(p, q);
-              const hit =
+              let hit =
                 p.settleSide && (leg === "up" || leg === "down")
                   ? (leg === "down" ? p.settleSide === "down" : p.settleSide === "up")
                   : sideWon(leg, spot, openPx);
+              if (settling) {
+                const frozen = settleFreeze.current[p.symbol];
+                if (frozen) {
+                  mark = frozen.mark;
+                  mtm = frozen.mtm;
+                  hit = frozen.hit;
+                } else {
+                  settleFreeze.current[p.symbol] = { mark, mtm, hit, end: end || now };
+                }
+              } else {
+                delete settleFreeze.current[p.symbol];
+              }
+              const value = p.qty * mark;
               const winning = hit === true && !settling;
               const settleWin = settling && hit === true;
               const settleLose = settling && hit === false;
