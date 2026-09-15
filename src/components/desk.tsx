@@ -1036,6 +1036,12 @@ function HomePane({
               const coinLabel = spot > 0 && openPx > 0 ? (spot < openPx ? "DOWN" : "UP") : "";
               const raceWith = hit === true;
               const raceAgainst = hit === false;
+              const cashIfPays =
+                p.kind === "poly" && hit === true
+                  ? (1 - p.avg) * p.qty
+                  : p.kind === "poly" && hit === false
+                    ? -p.avg * p.qty
+                    : mtm;
               const fresh = now - (p.openedAt || 0) < 90_000 && !settling;
               const showClock = p.kind === "poly" && (horizon === "5m" || horizon === "15m" || end != null);
               return (
@@ -1051,13 +1057,13 @@ function HomePane({
                   {settleWin && (
                     <span className="bag-winner-banner">
                       WINNER
-                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
+                      <span className="bag-banner-amt">{signedMoney(cashIfPays)}</span>
                     </span>
                   )}
                   {settleLose && (
                     <span className="bag-loser-banner">
                       LOSER
-                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
+                      <span className="bag-banner-amt">{signedMoney(cashIfPays)}</span>
                     </span>
                   )}
                   <div className="flex items-start justify-between gap-3">
@@ -1086,22 +1092,14 @@ function HomePane({
                         className={cn(
                           "mt-1 font-mono font-semibold tabular-nums",
                           settling ? "text-base" : "text-xs",
-                          settling && mark >= 0.94 && raceWith
-                            ? "text-primary"
-                            : settling && mark <= 0.06 && raceAgainst
-                              ? "text-down"
-                              : "text-muted",
+                          raceWith ? "text-primary" : raceAgainst ? "text-down" : "text-muted",
                         )}
                       >
-                        {settling && mark >= 0.94 && raceWith
-                          ? `Won ${signedMoney(mtm)}`
-                          : settling && mark <= 0.06 && raceAgainst
-                            ? `Lost ${signedMoney(mtm)}`
-                            : settling && raceWith
-                              ? `Waiting on $1 · book ${signedMoney(mtm)}`
-                              : settling && raceAgainst
-                                ? `Waiting on $0 · book ${signedMoney(mtm)}`
-                                : `Book ${signedMoney(mtm)} if sold now`}
+                        {settling && raceWith
+                          ? `Pays $1 → ${signedMoney(cashIfPays)}`
+                          : settling && raceAgainst
+                            ? `Pays $0 → ${signedMoney(cashIfPays)}`
+                            : `Book ${signedMoney(mtm)} if sold now`}
                       </p>
                     </div>
                   </div>
