@@ -3,9 +3,11 @@ import {
   CircleAlert,
   ClipboardCopy,
   FileText,
+  Moon,
   Plus,
   RotateCcw,
   Search,
+  Sun,
   Shield,
   Trash2,
   Users,
@@ -57,6 +59,24 @@ function copyPeopleFirst(bots: DeskSnapshot["bots"]) {
 const TABS = ["Home", "Bots", "Copy", "Log"] as const;
 type Tab = (typeof TABS)[number];
 const SIZES = [10, 25, 50];
+const THEME_KEY = "cora-theme";
+
+function readTheme(): "light" | "dark" {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    if (v === "dark" || v === "light") return v;
+  } catch {
+    /* private mode */
+  }
+  return "light";
+}
+
+function applyTheme(mode: "light" | "dark") {
+  document.documentElement.classList.toggle("dark", mode === "dark");
+  document.documentElement.style.colorScheme = mode;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", mode === "dark" ? "#12110f" : "#f3eee4");
+}
 
 function kindLabel(k: MarketKind) {
   if (k === "stock") return "Stock";
@@ -71,6 +91,12 @@ export function Desk() {
   const [tab, setTab] = useState<Tab>("Home");
   const [resetOpen, setResetOpen] = useState(false);
   const [resetName, setResetName] = useState("");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  useEffect(() => {
+    const mode = readTheme();
+    setTheme(mode);
+    applyTheme(mode);
+  }, []);
 
   if (!desk) {
     return (
@@ -114,7 +140,7 @@ export function Desk() {
   return (
     <div className="min-h-dvh bg-bg text-fg">
       <Toaster
-        theme="light"
+        theme={theme}
         toastOptions={{ className: "bg-surface text-fg border-border font-sans" }}
       />
       <div className="sticky top-0 z-30 border-b border-border/80 bg-bg/95 pt-[env(safe-area-inset-top)] backdrop-blur-md">
@@ -132,6 +158,23 @@ export function Desk() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-surface text-fg shadow-[var(--shadow-card)]"
+              onClick={() => {
+                const next = theme === "dark" ? "light" : "dark";
+                setTheme(next);
+                try {
+                  localStorage.setItem(THEME_KEY, next);
+                } catch {
+                  /* ignore */
+                }
+                applyTheme(next);
+              }}
+            >
+              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </button>
             <button
               type="button"
               className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fg px-4 text-sm font-semibold text-bg transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]"
@@ -179,7 +222,7 @@ export function Desk() {
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
-                className="min-h-11 flex-1 rounded-lg bg-core font-semibold text-surface"
+                className="min-h-11 flex-1 rounded-lg bg-core font-semibold text-on"
                 onClick={() => {
                   void remote.reset(resetName).then(() => {
                     toast("New $1,000 test started");
@@ -314,7 +357,7 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
   return (
     <div
       className={cn(
-        "rounded-2xl p-3 text-surface shadow-[var(--shadow-card)] md:p-4",
+        "rounded-2xl p-3 text-on shadow-[var(--shadow-card)] md:p-4",
         poly ? "bg-poly" : "bg-core",
       )}
     >
@@ -561,7 +604,7 @@ function RoundBoard({
           <div
             className={cn(
               "race-cross pointer-events-none absolute inset-x-0 top-0 z-10 px-4 py-2 text-center font-display text-lg font-semibold",
-              cross === "up" ? "bg-primary text-surface" : "bg-down text-surface",
+              cross === "up" ? "bg-primary text-on" : "bg-down text-on",
             )}
           >
             {cross === "up" ? "Up takes the lead" : "Down takes the lead"}
@@ -787,7 +830,7 @@ function HomePane({
                   onClick={() => setNotional(n)}
                   className={cn(
                     "min-h-11 rounded-md px-3 font-mono text-sm",
-                    notional === n ? "bg-core text-surface" : "bg-elevated",
+                    notional === n ? "bg-core text-on" : "bg-elevated",
                   )}
                 >
                   {compactMoney(n)}
@@ -795,7 +838,7 @@ function HomePane({
               ))}
               <button
                 type="submit"
-                className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-core px-4 text-sm font-semibold text-surface"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-core px-4 text-sm font-semibold text-on"
               >
                 <Search className="size-4" />
                 Buy {compactMoney(notional)}
@@ -864,7 +907,7 @@ function HomePane({
                     </button>
                     <button
                       type="button"
-                      className="min-h-11 rounded-lg bg-down text-sm font-semibold text-surface"
+                      className="min-h-11 rounded-lg bg-down text-sm font-semibold text-on"
                       onClick={() => onSellAll(p.symbol)}
                     >
                       Sell all
@@ -1093,7 +1136,7 @@ function BotsPane({
         />
         <button
           type="submit"
-          className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg bg-core text-sm font-semibold text-surface"
+          className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg bg-core text-sm font-semibold text-on"
         >
           <Plus className="size-4" />
           Add bot
@@ -1354,7 +1397,7 @@ function OnOff({ on, onClick }: { on: boolean; onClick: () => void }) {
       onClick={onClick}
       className={cn(
         "min-h-11 min-w-16 rounded-full px-4 text-sm font-semibold",
-        on ? "bg-core text-surface" : "bg-elevated text-muted",
+        on ? "bg-core text-on" : "bg-elevated text-muted",
       )}
     >
       {on ? "On" : "Off"}

@@ -14,6 +14,7 @@
   --color-pump: #c2410c;
   --color-poly: #c2410c;
   --color-border: #e4d9c6;
+  --color-on: #fffaf1;
   --font-sans: "Nunito Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -28,6 +29,25 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+    --color-bg: #12110f;
+    --color-surface: #1c1a16;
+    --color-elevated: #2a2620;
+    --color-fg: #f3eee4;
+    --color-muted: #a39c90;
+    --color-primary: #3dcfb0;
+    --color-down: #ef6f64;
+    --color-warn: #e8a54b;
+    --color-sky: #6ea8ff;
+    --color-core: #2aa88a;
+    --color-pump: #e07038;
+    --color-poly: #e07038;
+    --color-border: #3a342c;
+    --color-on: #fffaf1;
+    --shadow-card: 0 1px 0 rgba(255, 250, 241, 0.04), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
   }
   html,
   body,
