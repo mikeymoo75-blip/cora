@@ -971,14 +971,16 @@ function HomePane({
                     fresh && "bag-new",
                   )}
                 >
-                  {settleWin && (
-                    <span className="bag-winner-banner" aria-hidden>
+                  {(settleWin || winning) && (
+                    <span className="bag-winner-banner">
                       WINNER
+                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
                     </span>
                   )}
-                  {settleLose && (
-                    <span className="bag-loser-banner" aria-hidden>
+                  {(settleLose || liveLose) && (
+                    <span className="bag-loser-banner">
                       LOSER
+                      <span className="bag-banner-amt">{signedMoney(mtm)}</span>
                     </span>
                   )}
                   <div className="flex items-start justify-between gap-2">
