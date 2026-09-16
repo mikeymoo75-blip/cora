@@ -85,10 +85,7 @@ function defaultBots(): Bot[] {
       strategy: "sniper",
       sizeUsd: 20,
       scope: "poly",
-      maxNames: 4,
-      lastSignal: "idle",
-      lastTickAt: 0,
-      lastReason: "Live CLOB + TWAP. Favorite 50–80¢ snipes and 5m/15m corridor locks.",
+      maxNames: 6,
     },
     {
       id: "bot-scan-poly-fade",
