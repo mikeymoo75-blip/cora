@@ -1118,11 +1118,30 @@ function HomePane({
         {desk.fills.length === 0 ? (
           <p className="text-sm text-muted">No trades yet today.</p>
         ) : (
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {desk.fills.slice(0, 10).map((f) => (
-              <FillRow key={f.id} fill={f} symbol={desk.quotes[f.symbol]?.symbol ?? f.symbol} />
-            ))}
-          </ul>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-2 text-[10px] font-semibold tracking-wide text-primary uppercase">Buys</p>
+              <ul className="grid gap-2">
+                {desk.fills.filter((f) => f.side === "buy").slice(0, 8).map((f) => (
+                  <FillRow key={f.id} fill={f} symbol={desk.quotes[f.symbol]?.symbol ?? f.symbol} />
+                ))}
+              </ul>
+              {desk.fills.every((f) => f.side !== "buy") && (
+                <p className="text-sm text-muted">No buys yet.</p>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 text-[10px] font-semibold tracking-wide text-down uppercase">Sells</p>
+              <ul className="grid gap-2">
+                {desk.fills.filter((f) => f.side === "sell").slice(0, 8).map((f) => (
+                  <FillRow key={f.id} fill={f} symbol={desk.quotes[f.symbol]?.symbol ?? f.symbol} />
+                ))}
+              </ul>
+              {desk.fills.every((f) => f.side !== "sell") && (
+                <p className="text-sm text-muted">No sells yet.</p>
+              )}
+            </div>
+          </div>
         )}
       </section>
 
