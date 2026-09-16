@@ -122,7 +122,6 @@ export function Desk() {
     );
   }
 
-  const equity = desk.equityNow;
   const cashed = desk.stats.realizedPnl;
   const holdings = Object.values(desk.positions).sort(
     (a, b) => (b.openedAt || 0) - (a.openedAt || 0),
@@ -132,7 +131,6 @@ export function Desk() {
     return n + (positionMark(p, q) - p.avg) * p.qty;
   }, 0);
   const botsOn = desk.bots.filter((b) => b.enabled);
-  const last = desk.lastFill;
 
   const sellAll = (id: string) => {
     const q = desk.quotes[id];
@@ -166,24 +164,19 @@ export function Desk() {
         toastOptions={{ className: "bg-surface text-fg border-border font-sans" }}
       />
       <div className="sticky top-0 z-30 border-b border-border/80 bg-bg/95 pt-[env(safe-area-inset-top)] backdrop-blur-md">
-      <header className="px-4 pt-3 pb-2 md:px-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold tracking-widest text-core uppercase">Paper desk</p>
-            <h1 className="font-display text-2xl font-semibold tracking-tight md:text-3xl">Cora</h1>
-            <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted">
-              {botsOn.length} bot{botsOn.length === 1 ? "" : "s"} on ·{" "}
-              {desk.stockMarketOpen ? "US stocks open" : "US stocks closed"} · checked {ago(desk.loopAt)}
-              {last
-                ? ` · last ${last.side} ${desk.quotes[last.symbol]?.symbol ?? last.symbol}`
-                : ""}
+      <header className="px-3 py-1.5 md:px-6">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="font-display text-lg font-semibold tracking-tight">Cora</h1>
+            <p className="truncate text-[11px] text-muted">
+              {botsOn.length} on · {desk.stockMarketOpen ? "stocks open" : "stocks closed"} · {ago(desk.loopAt)}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 gap-1.5">
             <button
               type="button"
               aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-surface text-fg shadow-[var(--shadow-card)]"
+              className="inline-flex size-8 items-center justify-center rounded-md bg-surface text-fg shadow-[var(--shadow-card)]"
               onClick={() => {
                 const next = theme === "dark" ? "light" : "dark";
                 setTheme(next);
@@ -195,11 +188,11 @@ export function Desk() {
                 applyTheme(next);
               }}
             >
-              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
             </button>
             <button
               type="button"
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fg px-4 text-sm font-semibold text-bg transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]"
+              className="inline-flex h-8 items-center gap-1 rounded-md bg-fg px-2.5 text-xs font-semibold text-bg"
               onClick={() => {
                 void remote.saveReport().then(async (next) => {
                   const text = next?.reports?.[0]?.text;
@@ -215,16 +208,16 @@ export function Desk() {
                 });
               }}
             >
-              <FileText className="size-4" />
-              Save report
+              <FileText className="size-3.5" />
+              Report
             </button>
             <button
               type="button"
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-surface px-4 text-sm font-semibold shadow-[var(--shadow-card)]"
+              className="inline-flex h-8 items-center gap-1 rounded-md bg-surface px-2.5 text-xs font-semibold shadow-[var(--shadow-card)]"
               onClick={() => setResetOpen(true)}
             >
-              <RotateCcw className="size-4" />
-              New $1,000 test
+              <RotateCcw className="size-3.5" />
+              New test
             </button>
           </div>
         </div>
@@ -303,32 +296,29 @@ export function Desk() {
         )}
       </header>
 
-      <section className="grid grid-cols-3 gap-2 px-4 pb-2 md:gap-3 md:px-8">
+      <section className="grid grid-cols-3 gap-1.5 px-3 pb-1.5 md:px-6">
         {(desk.walletViews || []).map((w) => (
           <WalletCard key={w.id} wallet={w} />
         ))}
-        <div className="rounded-2xl bg-surface p-3 shadow-[var(--shadow-card)] md:p-4">
-          <p className="text-[10px] font-semibold tracking-wide text-muted uppercase md:text-xs">Today · cashed</p>
-          <p className={cn("mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl", signedClass(cashed))}>
+        <div className="rounded-lg bg-surface px-2.5 py-1.5 shadow-[var(--shadow-card)]">
+          <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Today · cashed</p>
+          <p className={cn("font-display text-base font-semibold tabular-nums md:text-lg", signedClass(cashed))}>
             {signedMoney(cashed)}
           </p>
-          <p className="mt-0.5 hidden text-sm text-muted md:block">
-            Open bags {signedMoney(openMtm)} · book {compactMoney(equity)}
-          </p>
-          <p className="mt-0.5 text-[11px] text-muted md:hidden">
+          <p className="truncate text-[10px] text-muted">
             open {signedMoney(openMtm)}
           </p>
         </div>
       </section>
 
-      <nav className="flex gap-1 overflow-x-auto px-4 pb-2 md:px-8">
+      <nav className="flex gap-1 overflow-x-auto px-3 pb-1.5 md:px-6">
         {TABS.map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={cn(
-              "min-h-11 rounded-full px-5 text-sm font-semibold transition-colors duration-150",
+              "h-8 rounded-full px-3 text-xs font-semibold transition-colors duration-150",
               tab === t ? "bg-fg text-bg" : "bg-surface text-muted shadow-[var(--shadow-card)]",
             )}
           >
@@ -402,39 +392,17 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
   return (
     <div
       className={cn(
-        "rounded-2xl p-3 text-on shadow-[var(--shadow-card)] md:p-4",
+        "rounded-lg px-2.5 py-1.5 text-on shadow-[var(--shadow-card)]",
         poly ? "bg-poly" : "bg-core",
       )}
     >
-      <p className="text-[10px] font-semibold tracking-wide uppercase opacity-80 md:text-xs">
-        {poly ? (
-          <>
-            <span className="md:hidden">Poly</span>
-            <span className="hidden md:inline">Polymarket</span>
-          </>
-        ) : (
-          <>
-            <span className="md:hidden">Core</span>
-            <span className="hidden md:inline">Stocks + crypto</span>
-          </>
-        )}
+      <p className="text-[10px] font-semibold tracking-wide uppercase opacity-80">
+        {poly ? "Polymarket" : "Stocks + crypto"}
       </p>
-      <p className="mt-0.5 font-display text-lg font-semibold tabular-nums md:text-3xl">
+      <p className="font-display text-base font-semibold tabular-nums md:text-lg">
         {compactMoney(poly ? wallet.cash : wallet.equity)}
       </p>
-      <p className="mt-0.5 text-[11px] opacity-90 md:text-sm">
-        {poly ? (
-          <>
-            cashed <span className="font-semibold">{signedMoney(wallet.realizedPnl)}</span>
-          </>
-        ) : (
-          <>
-            cash {compactMoney(wallet.cash)}
-            <span className="hidden md:inline"> · cashed </span>
-            <span className="block font-semibold md:inline">{signedMoney(wallet.realizedPnl)}</span>
-          </>
-        )}
-      </p>
+      <p className="truncate text-[10px] opacity-90">cashed {signedMoney(wallet.realizedPnl)}</p>
     </div>
   );
 }
