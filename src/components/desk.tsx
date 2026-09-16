@@ -794,9 +794,12 @@ function bagHorizon(p: Position, q?: Quote): "5m" | "15m" | undefined {
 }
 
 function bagLeg(p: Position, q?: Quote): "up" | "down" | "" {
-  const s = `${q?.symbol || ""} ${p.symbol} ${p.leg || ""} ${q?.leg || ""}`.toLowerCase();
-  if (/[-_]dn\b/.test(s) || s.includes(":down") || s.includes(" down") || /15m_dn|5m_dn/.test(s)) return "down";
-  if (/[-_]up\b/.test(s) || s.includes(":up") || s.includes(" up")) return "up";
+  const id = `${p.symbol} ${q?.id || ""}`.toLowerCase();
+  if (id.includes(":down") || /[-_]dn\b/.test(id)) return "down";
+  if (id.includes(":up") || /[-_]up\b/.test(id)) return "up";
+  const s = `${q?.symbol || ""} ${p.leg || ""} ${q?.leg || ""}`.toLowerCase();
+  if (/[-_]dn\b/.test(s) || s.includes(" down")) return "down";
+  if (/[-_]up\b/.test(s) || s.includes(" up")) return "up";
   if (p.leg === "up" || p.leg === "down") return p.leg;
   if (q?.leg === "up" || q?.leg === "down") return q.leg;
   return "";
@@ -810,14 +813,15 @@ function bagSettledUp(p: Position, spot: number, open: number): boolean | null {
 }
 
 function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; open: number } {
-  if (isSettling(p)) {
-    return {
-      spot: p.lastSpot || 0,
-      open: p.lastOpen || 0,
-    };
-  }
   const ok = (spot: number, open: number) => spot > 0 && open > 0;
-  if (ok(q?.spot || 0, q?.openPx || 0)) return { spot: q!.spot || 0, open: q!.openPx || 0 };
+  const sameWindow = (x?: Quote) =>
+    !!(p.windowStart && x?.windowStart && Math.abs(x.windowStart - p.windowStart) <= 2000);
+  if (isSettling(p) && ok(p.lastSpot || 0, p.lastOpen || 0)) {
+    return { spot: p.lastSpot || 0, open: p.lastOpen || 0 };
+  }
+  if (q && ok(q.spot || 0, q.openPx || 0) && (!p.windowStart || !q.windowStart || sameWindow(q))) {
+    return { spot: q.spot || 0, open: q.openPx || 0 };
+  }
   if (ok(p.lastSpot || 0, p.lastOpen || 0)) return { spot: p.lastSpot || 0, open: p.lastOpen || 0 };
   const asset = (p.asset || q?.asset || "").toUpperCase();
   const horizon = p.horizon || q?.horizon;
@@ -825,12 +829,7 @@ function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; op
     for (const x of Object.values(desk.quotes)) {
       if ((x.asset || "").toUpperCase() !== asset || x.horizon !== horizon) continue;
       if (!ok(x.spot || 0, x.openPx || 0)) continue;
-      if (isCurrentRound(x) || (p.windowStart && x.windowStart === p.windowStart)) {
-        return { spot: x.spot || 0, open: x.openPx || 0 };
-      }
-    }
-    for (const x of Object.values(desk.quotes)) {
-      if ((x.asset || "").toUpperCase() === asset && x.horizon === horizon && ok(x.spot || 0, x.openPx || 0)) {
+      if (sameWindow(x) || (!p.windowStart && isCurrentRound(x))) {
         return { spot: x.spot || 0, open: x.openPx || 0 };
       }
     }
@@ -969,16 +968,16 @@ function HomePane({
               const spot = race.spot;
               const openPx = race.open;
               const leg = bagLeg(p, q);
-              let hit = sideWon(leg, spot, openPx);
-              if (settling && p.settleSide && (leg === "up" || leg === "down")) {
-                hit = leg === "down" ? p.settleSide === "down" : p.settleSide === "up";
-              }
+              const coinDown = spot > 0 && openPx > 0 && spot < openPx;
+              const coinUp = spot > 0 && openPx > 0 && !coinDown;
+              const raceWith = (leg === "down" && coinDown) || (leg === "up" && coinUp);
+              const raceAgainst = (leg === "down" && coinUp) || (leg === "up" && coinDown);
+              let hit: boolean | null = raceWith ? true : raceAgainst ? false : null;
               if (settling) {
                 const frozen = settleFreeze.current[p.symbol];
                 if (frozen) {
                   mark = frozen.mark;
                   mtm = frozen.mtm;
-                  hit = frozen.hit;
                 } else {
                   settleFreeze.current[p.symbol] = { mark, mtm, hit, end: end || now };
                 }
@@ -991,9 +990,7 @@ function HomePane({
               const settleLose = settling && hit === false;
               const liveLose = !settling && hit === false;
               const pickLabel = leg === "down" ? "DOWN" : leg === "up" ? "UP" : "";
-              const coinLabel = spot > 0 && openPx > 0 ? (spot < openPx ? "DOWN" : "UP") : "";
-              const raceWith = hit === true;
-              const raceAgainst = hit === false;
+              const coinLabel = coinDown ? "DOWN" : coinUp ? "UP" : "";
               const cashIfPays =
                 p.kind === "poly" && hit === true
                   ? (1 - p.avg) * p.qty
