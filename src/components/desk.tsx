@@ -588,7 +588,7 @@ function RoundBoard({
   return (
     <section>
       <div className="mb-3">
-        <h2 className="font-display text-2xl font-semibold">Live rounds</h2>
+        <h2 className="font-display text-lg font-semibold">Live rounds</h2>
         <p className="text-sm text-muted">
           Big number is time left. 5m / 15m is the round length — that part never changes.
         </p>
@@ -609,15 +609,15 @@ function RoundBoard({
               type="button"
               onClick={() => setPick(r.key)}
               className={cn(
-                "min-h-12 rounded-2xl px-3 py-1.5 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+                "rounded-lg px-2.5 py-1 text-left",
                 pick === r.key ? "bg-fg text-bg" : "bg-surface text-muted shadow-[var(--shadow-card)]",
               )}
             >
-              <span className="block text-[11px] font-semibold tracking-wide uppercase">
+              <span className="block text-[10px] font-semibold tracking-wide uppercase">
                 {r.asset} {r.horizon}
                 {heldHere ? " · in" : ""}
               </span>
-              <span className={cn("block font-mono text-lg font-semibold tabular-nums tracking-tight", pick === r.key ? "" : rLead ? "text-primary" : "text-down")}>
+              <span className={cn("block font-mono text-sm font-semibold tabular-nums", pick === r.key ? "" : rLead ? "text-primary" : "text-down")}>
                 {clockLeft(rLeft)}
               </span>
             </button>
@@ -626,63 +626,63 @@ function RoundBoard({
       </div>
       <article
         className={cn(
-          "relative overflow-hidden rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)] md:p-5",
+          "relative overflow-hidden rounded-xl bg-surface p-3 shadow-[var(--shadow-card)]",
           urgent && "round-lock",
         )}
       >
         {cross && (
           <div
             className={cn(
-              "race-cross pointer-events-none absolute inset-x-0 top-0 z-10 px-4 py-2 text-center font-display text-lg font-semibold",
+            "race-cross pointer-events-none absolute inset-x-0 top-0 z-10 px-3 py-1 text-center font-display text-sm font-semibold",
               cross === "up" ? "bg-primary text-on" : "bg-down text-on",
             )}
           >
             {cross === "up" ? "Up takes the lead" : "Down takes the lead"}
           </div>
         )}
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted uppercase">
-              <span className="round-pulse inline-block size-2 rounded-full bg-down" />
+            <p className="flex items-center gap-2 text-[10px] font-semibold tracking-wide text-muted uppercase">
+              <span className="round-pulse inline-block size-1.5 rounded-full bg-down" />
               Live · {featured.asset} {featured.horizon}
               {hedged ? " · hedged" : upPos ? " · long UP" : dnPos ? " · long DN" : ""}
             </p>
-            <div className="mt-3 flex flex-wrap items-end gap-8">
+            <div className="mt-1.5 flex flex-wrap items-end gap-5">
               <div>
-                <p className="text-xs font-semibold tracking-wide text-muted uppercase">Price to Beat</p>
-                <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums tracking-tight md:text-3xl">
+                <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Price to Beat</p>
+                <p className="font-mono text-lg font-semibold tabular-nums tracking-tight">
                   {fmtSpot(open)}
                 </p>
               </div>
               <div>
-                <p className="text-xs font-semibold tracking-wide text-muted uppercase">Live</p>
+                <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Live</p>
                 <TickPrice
                   value={shown}
-                  className="mt-0.5 text-3xl font-semibold md:text-4xl"
+                  className="text-lg font-semibold"
                 />
-                <p className={cn("text-xs font-medium tabular-nums", leadingUp ? "text-primary" : "text-down")}>
+                <p className={cn("text-[11px] font-medium tabular-nums", leadingUp ? "text-primary" : "text-down")}>
                   {open ? `${delta >= 0 ? "+" : ""}${delta.toFixed(3)}%` : "Waiting for open"}
-                  {leadingUp ? " · UP winning" : " · DOWN winning"}
+                  {leadingUp ? " · UP" : " · DOWN"}
                 </p>
               </div>
             </div>
           </div>
           <div
-            className="round-ring grid size-24 shrink-0 place-items-center rounded-full"
+            className="round-ring grid size-16 shrink-0 place-items-center rounded-full"
             style={{
               ["--p" as string]: `${p * 360}deg`,
               ["--ring" as string]: urgent ? "var(--color-down)" : "var(--color-primary)",
             }}
           >
-            <span className="grid size-[4.75rem] place-items-center rounded-full bg-surface text-center leading-none">
-              <span className="font-mono text-2xl font-semibold tabular-nums">{clockLeft(left)}</span>
-              <span className="mt-0.5 text-[10px] font-semibold tracking-wide text-muted uppercase">
-                left of {featured.horizon === "15m" ? "15:00" : "5:00"}
+            <span className="grid size-12 place-items-center rounded-full bg-surface text-center leading-none">
+              <span className="font-mono text-sm font-semibold tabular-nums">{clockLeft(left)}</span>
+              <span className="text-[9px] font-semibold tracking-wide text-muted uppercase">
+                {featured.horizon}
               </span>
             </span>
           </div>
         </div>
-        <div className="mt-4 overflow-hidden rounded-xl bg-elevated px-1 pt-2 pb-1">
+        <div className="mt-2 overflow-hidden rounded-lg bg-elevated px-1 pt-1 pb-0.5">
           <PriceRace
             spark={q?.spark || []}
             open={open}
@@ -697,24 +697,24 @@ function RoundBoard({
             <span className="font-mono tabular-nums">{clockLeft(left)} left</span>
           </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
           <button
             type="button"
             onClick={() => q && onBuy(q.id, 20)}
             className={cn(
-              "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+              "rounded-lg px-3 py-2 text-left",
               leadingUp ? "bg-primary/15 race-lead-up" : "bg-elevated",
               flashUp && "race-chip-flash",
             )}
             style={flashUp ? { ["--flash" as string]: "var(--color-primary)" } : undefined}
           >
             <div className="flex items-baseline justify-between">
-              <span className={cn("font-display text-xl font-semibold", leadingUp && "round-pulse text-primary")}>
+              <span className={cn("font-display text-base font-semibold", leadingUp && "round-pulse text-primary")}>
                 Up
               </span>
-              <span className="font-mono text-xl font-semibold tabular-nums">{(upPx * 100).toFixed(0)}¢</span>
+              <span className="font-mono text-base font-semibold tabular-nums">{(upPx * 100).toFixed(0)}¢</span>
             </div>
-            <p className="mt-1 text-xs text-muted">
+            <p className="text-[10px] text-muted">
               fair {(fair * 100).toFixed(0)}¢
               {upPos ? ` · you ${qtyFmt(upPos.qty)} @ ${(upPos.avg * 100).toFixed(0)}¢` : ""}
             </p>
@@ -723,25 +723,25 @@ function RoundBoard({
             type="button"
             onClick={() => featured.down && onBuy(featured.down.id, 20)}
             className={cn(
-              "min-h-14 rounded-xl px-4 py-3 text-left transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.98]",
+              "rounded-lg px-3 py-2 text-left",
               !leadingUp ? "bg-down/15 race-lead-dn" : "bg-elevated",
               flashDn && "race-chip-flash",
             )}
             style={flashDn ? { ["--flash" as string]: "var(--color-down)" } : undefined}
           >
             <div className="flex items-baseline justify-between">
-              <span className={cn("font-display text-xl font-semibold", !leadingUp && "round-pulse text-down")}>
+              <span className={cn("font-display text-base font-semibold", !leadingUp && "round-pulse text-down")}>
                 Down
               </span>
-              <span className="font-mono text-xl font-semibold tabular-nums">{(dnPx * 100).toFixed(0)}¢</span>
+              <span className="font-mono text-base font-semibold tabular-nums">{(dnPx * 100).toFixed(0)}¢</span>
             </div>
-            <p className="mt-1 text-xs text-muted">
+            <p className="text-[10px] text-muted">
               fair {((1 - fair) * 100).toFixed(0)}¢
               {dnPos ? ` · you ${qtyFmt(dnPos.qty)} @ ${(dnPos.avg * 100).toFixed(0)}¢` : ""}
             </p>
           </button>
         </div>
-        <div className="relative mt-3 h-3 overflow-hidden rounded-full bg-elevated">
+        <div className="relative mt-2 h-2 overflow-hidden rounded-full bg-elevated">
           <div className="round-odds absolute inset-y-0 left-0 bg-primary" style={{ width: `${upPx * 100}%` }} />
           <div
             className="absolute top-0 h-full w-0.5 bg-fg"
