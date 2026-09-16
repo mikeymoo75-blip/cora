@@ -401,7 +401,16 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
       <p className="font-display text-base font-semibold tabular-nums md:text-lg">
         {compactMoney(poly ? wallet.cash : wallet.equity)}
       </p>
-      <p className="truncate text-[10px] opacity-90">cashed {signedMoney(wallet.realizedPnl)}</p>
+      <p className="truncate text-[10px] opacity-90">
+        {poly ? (
+          <>
+            cashed {signedMoney(wallet.realizedPnl)}
+            {wallet.equity - wallet.cash > 1 ? ` · in bags ${compactMoney(wallet.equity - wallet.cash)}` : ""}
+          </>
+        ) : (
+          <>cashed {signedMoney(wallet.realizedPnl)}</>
+        )}
+      </p>
     </div>
   );
 }
