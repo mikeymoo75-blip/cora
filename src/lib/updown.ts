@@ -199,6 +199,18 @@ export function updownExplain(
     if (windowOver && (last <= 0.04 || last >= 0.96)) {
       return { action: "sell", why: `Polymarket resolved at ${Math.round(last * 100)}¢.` };
     }
+    if (windowOver && end && now - end >= 150_000) {
+      const won = sideWon(pos.leg, pos.lastSpot || 0, pos.lastOpen || 0);
+      return {
+        action: "sell",
+        why:
+          won === true
+            ? "Polymarket never printed 0/1 — cashing $1 from frozen Price-to-Beat."
+            : won === false
+              ? "Polymarket never printed 0/1 — cashing $0 from frozen Price-to-Beat."
+              : "Polymarket never printed 0/1 after 2.5m — flattening the leftover bag.",
+      };
+    }
     if (windowOver) {
       return {
         action: "hold",

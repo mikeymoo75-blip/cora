@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { isCurrentRound, pairLocks, updownExplain, windowBounds } from "./updown";
+import { isCurrentRound, pairLocks, sideWon, updownExplain, windowBounds } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -374,13 +374,22 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
 }
 
 /** Polymarket taker: buy the ask, sell the bid. Resolved bags redeem 0 or 1 — not 1¢/99¢. */
-export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: number): number {
+export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: number, pos?: Position): number {
   if (quote.kind === "poly") {
-    const end = windowEnd || quote.windowEnd;
+    const end = windowEnd || quote.windowEnd || pos?.windowEnd;
     const windowOver = !!(end && Date.now() >= end);
     if (side === "sell") {
       if (windowOver && quote.price <= 0.04) return 0;
       if (windowOver && quote.price >= 0.96) return 1;
+      const waited = end ? Date.now() - end : 0;
+      if (windowOver && waited >= 150_000 && pos) {
+        const leg =
+          pos.leg ||
+          (/:down|-dn$/i.test(pos.symbol) ? "down" : /:up|-up$/i.test(pos.symbol) ? "up" : "");
+        const won = sideWon(leg, pos.lastSpot || 0, pos.lastOpen || 0);
+        if (won === true) return 1;
+        if (won === false) return 0;
+      }
       const bid = quote.bid || 0;
       if (!(bid > 0)) return 0;
       return bid;
@@ -415,7 +424,7 @@ export function applyFill(
 
   const pos = s0.positions[symbol];
   const expectedPrice = quote.price;
-  const px = paperFillPx(quote, side, pos?.windowEnd || quote.windowEnd);
+  const px = paperFillPx(quote, side, pos?.windowEnd || quote.windowEnd, pos);
   if (!Number.isFinite(px) || px < 0) return s0;
   if (side === "buy" && !(px > 0)) return s0;
   const slipActual = expectedPrice > 0 && px > 0 ? ((px - expectedPrice) / expectedPrice) * 10_000 : 0;
@@ -458,7 +467,7 @@ export function applyFill(
     side === "sell" &&
     !!(pos?.windowEnd || quote.windowEnd) &&
     Date.now() >= (pos?.windowEnd || quote.windowEnd || 0) &&
-    (quote.price <= 0.04 || quote.price >= 0.96);
+    (px === 0 || px === 1);
   const fees = resolved
     ? { venue: 0, regulatory: 0, gas: 0.12, total: 0.12, note: "Redeem 0/1 + Polygon gas" }
     : calcFees(kind, side, quote.symbol, qty, gross);
@@ -1651,55 +1660,59 @@ export function tickHeldExits(state: DeskState): DeskState {
   for (const pos of Object.values(next.positions)) {
     const quote = next.quotes[pos.symbol];
     const windowOver = isSettling(pos);
-    if (windowOver && pos.closedMark && pos.settleSide && pos.lastSpot && pos.lastOpen) continue;
+    const frozenHard = !!(windowOver && pos.closedMark && pos.settleSide && pos.lastSpot && pos.lastOpen);
     const last = honestBookPx(quote?.price) || pos.lastMark;
-    if (windowOver || last) {
+    if (!frozenHard) {
+      if (windowOver || last) {
+        next = {
+          ...next,
+          positions: {
+            ...next.positions,
+            [pos.symbol]: {
+              ...pos,
+              lastMark: windowOver ? pos.lastMark || last : last || pos.lastMark,
+              closedMark: pos.closedMark || (windowOver ? pos.lastMark || last : undefined),
+            },
+          },
+        };
+      }
+    }
+    if (!quote) continue;
+    if (pos.kind === "stock" && !rth) continue;
+    const stamped = next.positions[pos.symbol]!;
+    if (!frozenHard) {
+      const liveSpot = !windowOver && quote.spot && quote.spot > 0 ? quote.spot : 0;
+      const liveOpen = !windowOver && quote.openPx && quote.openPx > 0 ? quote.openPx : 0;
+      const frozenSpot = windowOver ? stamped.lastSpot : liveSpot || stamped.lastSpot;
+      const frozenOpen = windowOver ? stamped.lastOpen : liveOpen || stamped.lastOpen;
+      const settleSide =
+        stamped.settleSide ||
+        (windowOver && frozenSpot && frozenOpen
+          ? frozenSpot >= frozenOpen
+            ? "up"
+            : "down"
+          : undefined);
       next = {
         ...next,
         positions: {
           ...next.positions,
           [pos.symbol]: {
-            ...pos,
-            lastMark: windowOver ? pos.lastMark || last : last || pos.lastMark,
-            closedMark: pos.closedMark || (windowOver ? pos.lastMark || last : undefined),
+            ...stamped,
+            peak: windowOver ? stamped.peak : Math.max(stamped.peak, honestBookPx(quote.price) || stamped.peak),
+            windowStart: stamped.windowStart || quote.windowStart,
+            windowEnd: stamped.windowEnd || quote.windowEnd || positionWindowEnd(stamped),
+            horizon: stamped.horizon || quote.horizon,
+            asset: stamped.asset || quote.asset,
+            leg: stamped.leg || quote.leg,
+            lastMark: windowOver ? stamped.lastMark || last : last,
+            lastSpot: frozenSpot,
+            lastOpen: frozenOpen,
+            settleSide,
+            closedMark: stamped.closedMark || (windowOver ? stamped.lastMark || last : undefined),
           },
         },
       };
     }
-    if (!quote) continue;
-    if (pos.kind === "stock" && !rth) continue;
-    const stamped = next.positions[pos.symbol]!;
-    const liveSpot = !windowOver && quote.spot && quote.spot > 0 ? quote.spot : 0;
-    const liveOpen = !windowOver && quote.openPx && quote.openPx > 0 ? quote.openPx : 0;
-    const frozenSpot = windowOver ? stamped.lastSpot : liveSpot || stamped.lastSpot;
-    const frozenOpen = windowOver ? stamped.lastOpen : liveOpen || stamped.lastOpen;
-    const settleSide =
-      stamped.settleSide ||
-      (windowOver && frozenSpot && frozenOpen
-        ? frozenSpot >= frozenOpen
-          ? "up"
-          : "down"
-        : undefined);
-    next = {
-      ...next,
-      positions: {
-        ...next.positions,
-        [pos.symbol]: {
-          ...stamped,
-          peak: windowOver ? stamped.peak : Math.max(stamped.peak, honestBookPx(quote.price) || stamped.peak),
-          windowStart: stamped.windowStart || quote.windowStart,
-          windowEnd: stamped.windowEnd || quote.windowEnd || positionWindowEnd(stamped),
-          horizon: stamped.horizon || quote.horizon,
-          asset: stamped.asset || quote.asset,
-          leg: stamped.leg || quote.leg,
-          lastMark: windowOver ? stamped.lastMark || last : last,
-          lastSpot: frozenSpot,
-          lastOpen: frozenOpen,
-          settleSide,
-          closedMark: stamped.closedMark || (windowOver ? stamped.lastMark || last : undefined),
-        },
-      },
-    };
     const marked = next.positions[pos.symbol]!;
     const bot = ownerOf(pos.symbol);
     const dummy: Bot = {
