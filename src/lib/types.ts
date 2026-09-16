@@ -276,6 +276,8 @@ export type DeskState = {
   scanTape: ScanNote[];
   /** Wins/losses by Eastern hour. Survives New $1,000 test. */
   hourClock: HourClock[];
+  /** Bump to wipe the clock. 2 = hourly, no skip. */
+  clockGen?: number;
 };
 
 export type DeskSnapshot = DeskState & {

@@ -1213,44 +1213,36 @@ function HomePane({
 }
 
 function HourClockCard({ clock }: { clock: HourClock[] }) {
-  const buckets: { start: number; sells: number; wins: number; net: number }[] = [];
-  for (let h = 0; h < 24; h += 2) {
-    const a = clock.find((r) => r.hour === h);
-    const b = clock.find((r) => r.hour === h + 1);
-    const sells = (a?.sells || 0) + (b?.sells || 0);
-    if (!sells) continue;
-    buckets.push({
-      start: h,
-      sells,
-      wins: (a?.wins || 0) + (b?.wins || 0),
-      net: (a?.net || 0) + (b?.net || 0),
-    });
-  }
+  const hours = Array.from({ length: 24 }, (_, h) => {
+    const row = clock.find((r) => r.hour === h);
+    return {
+      hour: h,
+      sells: row?.sells || 0,
+      wins: row?.wins || 0,
+      net: row?.net || 0,
+    };
+  });
+  const any = hours.some((h) => h.sells > 0);
   return (
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
-        Wins and losses by two-hour window. Survives a new test. After 8 sells in a window that does not pay, paper skips new tickets there.
+        One box per hour. Logging only — we still buy in red hours so the day fills in.
       </p>
-      {buckets.length === 0 ? (
-        <p className="text-sm text-muted">No cashed 5m/15m trades in the clock yet.</p>
+      {!any ? (
+        <p className="text-sm text-muted">Clock reset. Cashed 5m/15m trades will land in their hour.</p>
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {buckets.map((b) => {
-            const wr = b.wins / b.sells;
-            const cold = b.sells >= 8 && b.net < 0 && wr < 0.45;
-            return (
-              <li key={b.start} className="rounded-2xl bg-surface px-4 py-3 shadow-[var(--shadow-card)]">
-                <p className="text-sm font-semibold">
-                  {fmtHour(b.start)}–{fmtHour(b.start + 2)} ET
-                  {cold ? " · skip" : ""}
-                </p>
-                <p className={cn("mt-1 font-mono text-sm", signedClass(b.net))}>
-                  {b.wins}/{b.sells} wins · {signedMoney(b.net)}
-                </p>
-              </li>
-            );
-          })}
+        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {hours.map((b) => (
+            <li key={b.hour} className="rounded-2xl bg-surface px-4 py-3 shadow-[var(--shadow-card)]">
+              <p className="text-sm font-semibold">
+                {fmtHour(b.hour)}–{fmtHour(b.hour + 1)} ET
+              </p>
+              <p className={cn("mt-1 font-mono text-sm", b.sells ? signedClass(b.net) : "text-muted")}>
+                {b.sells ? `${b.wins}/${b.sells} wins · ${signedMoney(b.net)}` : "no sells yet"}
+              </p>
+            </li>
+          ))}
         </ul>
       )}
     </section>

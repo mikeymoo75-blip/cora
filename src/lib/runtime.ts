@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, clockFromFills, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { riskView } from "./risk";
 import { fetchMarketSnapshot, fetchUpDownRounds, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
 import { ensureTwapStream } from "./twap";
@@ -169,6 +169,7 @@ function blank(): DeskState {
     reports: [],
     scanTape: [],
     hourClock: [],
+    clockGen: 2,
   };
 }
 
@@ -277,7 +278,8 @@ function load(): DeskState {
       fills,
       positions,
       reports: parsed.reports || [],
-      hourClock: parsed.hourClock?.length ? parsed.hourClock : clockFromFills(fills),
+      hourClock: parsed.clockGen === 2 ? parsed.hourClock || [] : [],
+      clockGen: 2,
     });
   } catch {
     return blank();

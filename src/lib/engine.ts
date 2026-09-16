@@ -134,7 +134,8 @@ export function ensureWallets(state: DeskState): DeskState {
       quotes,
       reports: state.reports || [],
       scanTape: state.scanTape || [],
-      hourClock: state.hourClock || [],
+      hourClock: state.clockGen === 2 ? state.hourClock || [] : [],
+      clockGen: 2,
     };
   } else {
     const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
@@ -1309,8 +1310,7 @@ export function tickBots(state: DeskState): DeskState {
 
     // Buy new names that pass the rule.
     let held = ownedSymbols(next, bot.id).length;
-    const cold = bot.strategy === "sniper" ? hourWindowSkip(next.hourClock) : "";
-    if (bot.strategy === "sniper" && !cold) {
+    if (bot.strategy === "sniper") {
       const locks = pairLocks(Object.values(next.quotes));
       for (const pair of locks) {
         const legs = [pair.a, pair.b];
@@ -1398,10 +1398,6 @@ export function tickBots(state: DeskState): DeskState {
     let newDirectional = 0;
     for (const quote of ranked.slice(0, 60)) {
       if (next.positions[quote.id]) continue;
-      if (cold && quote.horizon) {
-        pass.push(scanNote(bot, quote, "skip", cold));
-        break;
-      }
       if (fillDelay) {
         pass.push(scanNote(bot, quote, "skip", `Filled-order delay: wait ${fillDelay}s after the last fill.`));
         break;
@@ -1900,19 +1896,7 @@ export function stampHourClock(state: DeskState, fill: Fill): HourClock[] {
 }
 
 /** 2-hour ET window with enough paper: skip new tickets if it does not pay. */
-export function hourWindowSkip(clock: HourClock[] | undefined, at = Date.now()): string {
-  const rows = clock || [];
-  const start = hourBucket(etHour(at));
-  const a = rows.find((r) => r.hour === start);
-  const b = rows.find((r) => r.hour === start + 1);
-  const sells = (a?.sells || 0) + (b?.sells || 0);
-  const wins = (a?.wins || 0) + (b?.wins || 0);
-  const net = (a?.net || 0) + (b?.net || 0);
-  if (sells < 8) return "";
-  const wr = wins / sells;
-  if (net < 0 && wr < 0.45) {
-    return `${fmtHour(start)}–${fmtHour(start + 2)} ET is cold (${wins}/${sells} wins, ${net >= 0 ? "+" : ""}${net.toFixed(0)}). No new tickets this window.`;
-  }
+export function hourWindowSkip(_clock?: HourClock[], _at = Date.now()): string {
   return "";
 }
 
