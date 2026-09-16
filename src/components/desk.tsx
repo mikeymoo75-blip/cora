@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Search,
   Sun,
-  Shield,
   Trash2,
   Users,
 } from "lucide-react";
@@ -418,41 +417,32 @@ function RiskBoard({ desk }: { desk: DeskSnapshot }) {
   if (!risk) return null;
   const copyFail = risk.copyQuality.filter((q) => !q.ok);
   return (
-    <section className="rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
-      <div className="mb-3 flex items-center gap-2">
-        <Shield className="size-5 text-core" />
-        <div>
-          <h2 className="font-display text-xl font-semibold">Risk layers</h2>
-          <p className="text-xs text-muted">
-            4-layer paper protection. Tickets shrink when a layer heats up — bots keep running.
-          </p>
-        </div>
+    <section className="rounded-xl bg-surface px-3 py-2 shadow-[var(--shadow-card)]">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Risk</p>
+        <p className="truncate text-[11px] text-muted">
+          Tickets {Math.round(risk.sizeMult * 100)}% · {risk.sizeWhy}
+        </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-4 gap-1.5">
         {risk.layers.map((layer) => (
-          <div key={layer.id} className="rounded-xl bg-elevated p-3">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-xs font-semibold tracking-wide text-muted uppercase">{layer.label}</p>
-              <p className="font-mono text-xs text-muted">{layer.limitPct.toFixed(0)}% cap</p>
-            </div>
-            <p className={cn("mt-1 font-display text-lg font-semibold tabular-nums", signedClass(layer.usd))}>
+          <div key={layer.id} className="rounded-md bg-elevated px-2 py-1">
+            <p className="truncate text-[10px] font-semibold tracking-wide text-muted uppercase">{layer.label}</p>
+            <p className={cn("font-mono text-xs font-semibold tabular-nums", signedClass(layer.usd))}>
               {signedMoney(layer.usd)}
             </p>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-border">
               <div
-                className={cn("h-full rounded-full transition-[width] duration-300", layerTone(layer.status))}
+                className={cn("h-full rounded-full", layerTone(layer.status))}
                 style={{ width: `${Math.min(100, layer.usedPct)}%` }}
               />
             </div>
           </div>
         ))}
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-muted">
-        Tickets at {Math.round(risk.sizeMult * 100)}% of base. {risk.sizeWhy}
-      </p>
       {copyFail.length > 0 && (
-        <p className="mt-2 text-sm text-warn">
-          Smart money: {copyFail.map((q) => q.name.replace(/^Copy /, "")).join(", ")} paused for new copies.
+        <p className="mt-1 truncate text-[11px] text-warn">
+          Smart money: {copyFail.map((q) => q.name.replace(/^Copy /, "")).join(", ")} paused
         </p>
       )}
     </section>
