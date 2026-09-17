@@ -471,10 +471,22 @@ function stripStaleBags(state: DeskState): DeskState {
 }
 
 export function snapshot(): DeskSnapshot {
-  const s = ensureWallets(getState());
+  const s = getState();
+  const quotes = Object.fromEntries(
+    Object.values(s.quotes).map((q) => [q.id, { ...q, spark: (q.spark || []).slice(-48) }]),
+  );
+  const slim = {
+    ...s,
+    quotes,
+    fills: s.fills.slice(0, 120),
+    copyEvents: (s.copyEvents || []).slice(0, 40),
+    scanTape: (s.scanTape || []).slice(0, 40),
+    equity: (s.equity || []).slice(-120),
+    reports: (s.reports || []).slice(0, 12),
+  };
   const equityNow = markToMarket(s);
   return {
-    ...s,
+    ...slim,
     stats: deskStats(s),
     equityNow,
     scores: botScores(s),
@@ -687,7 +699,9 @@ export async function refreshUpDownLoop(): Promise<void> {
     const s = getState();
     const quotes: DeskState["quotes"] = {};
     for (const q of overlayLivePoly(mergeQuotes(s.quotes, rounds))) quotes[q.id] = q;
-    commitState({ ...s, quotes, loopAt: Date.now(), loopOk: true }, started);
+    let next = { ...s, quotes, loopAt: Date.now(), loopOk: true };
+    next = tickBots(next);
+    commitState(next, started);
   } catch (err) {
     console.error("[cora] updown refresh failed", err);
   }
@@ -696,11 +710,12 @@ export async function refreshUpDownLoop(): Promise<void> {
 export function tickPolyFast(): void {
   const started = deskGen();
   const s = getState();
-  const quotes: DeskState["quotes"] = {};
-  for (const q of overlayLivePoly(s.quotes)) quotes[q.id] = q;
+  const poly = Object.values(s.quotes).filter((q) => q.kind === "poly");
+  if (!poly.length) return;
+  const quotes = { ...s.quotes };
+  for (const q of overlayLivePoly(poly)) quotes[q.id] = q;
   let next = { ...s, quotes };
   next = tickHeldExits(next);
-  next = tickBots(next);
   commitState({ ...next, loopAt: Date.now(), loopOk: true }, started);
 }
 
