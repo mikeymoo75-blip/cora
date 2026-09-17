@@ -290,23 +290,44 @@ function load(): DeskState {
   }
 }
 
+function bookSig(state: DeskState): string {
+  const pos = Object.values(state.positions || {})
+    .map((p) => `${p.symbol}:${p.qty.toFixed(4)}`)
+    .sort()
+    .join(",");
+  const w = state.wallets;
+  return [
+    state.fills[0]?.id || "",
+    String(state.fills.length),
+    pos,
+    w?.poly?.cash.toFixed(2),
+    w?.core?.cash.toFixed(2),
+    state.bots.map((b) => `${b.id}:${b.enabled ? 1 : 0}`).join("|"),
+    String((state.hourClock || []).reduce((n, r) => n + r.buys + r.sells, 0)),
+    String(state.runStartedAt || 0),
+  ].join("~");
+}
+
 function save(state: DeskState) {
+  const sig = bookSig(state);
+  if (g().__coraSaveSig === sig) return;
+  g().__coraSaveSig = sig;
   const file = dataFile();
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.tmp`;
+  const held = new Set(Object.keys(state.positions || {}));
   const slim: DeskState = {
     ...state,
     quotes: Object.fromEntries(
-      Object.values(state.quotes).map((q) => [
-        q.id,
-        { ...q, spark: q.spark.slice(q.horizon ? -960 : -48) },
-      ]),
+      Object.values(state.quotes)
+        .filter((q) => held.has(q.id) || (q.kind === "poly" && q.horizon && q.live))
+        .map((q) => [q.id, { ...q, spark: [] }]),
     ),
     fills: state.fills.slice(0, 400),
-    equity: state.equity.slice(-480),
-    copyEvents: state.copyEvents.slice(0, 80),
-    scanTape: (state.scanTape || []).slice(0, 150),
-    bots: state.bots.map((b) => ({ ...b, lastScan: (b.lastScan || []).slice(0, 30) })),
+    equity: state.equity.slice(-120),
+    copyEvents: state.copyEvents.slice(0, 40),
+    scanTape: (state.scanTape || []).slice(0, 40),
+    bots: state.bots.map((b) => ({ ...b, lastScan: (b.lastScan || []).slice(0, 12) })),
   };
   writeFileSync(tmp, JSON.stringify(slim));
   renameSync(tmp, file);
@@ -316,6 +337,7 @@ type G = typeof globalThis & {
   __coraDesk?: DeskState;
   __coraDeskGen?: number;
   __coraSaveTimer?: ReturnType<typeof setTimeout>;
+  __coraSaveSig?: string;
   __coraLoop?: ReturnType<typeof setInterval>;
   __coraPumpLoop?: ReturnType<typeof setInterval>;
   __coraPolyLoop?: ReturnType<typeof setInterval>;
