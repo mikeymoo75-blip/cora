@@ -391,7 +391,7 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
   return (
     <div
       className={cn(
-        "rounded-lg px-2.5 py-1.5 text-center text-on shadow-[var(--shadow-card)]",
+        "rounded-lg px-2.5 py-1.5 text-center text-on shadow-[var(--shadow-card)] dark:text-black",
         poly ? "bg-poly" : "bg-core",
       )}
     >
