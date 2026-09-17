@@ -79,7 +79,8 @@ export function buildReport(state: DeskState): DeskReport {
   }
   lines.push(`  Peak equity ${money(risk.peakEquity)}  drawdown ${risk.drawdownPct.toFixed(1)}%`);
   lines.push(`  Ticket size now ${Math.round(risk.sizeMult * 100)}% of base. ${risk.sizeWhy}`);
-  const thisClock = clockFromFills(state.fills || []);
+  const epoch = state.clockEpoch || 0;
+  const thisClock = clockFromFills(epoch ? (state.fills || []).filter((f) => f.ts >= epoch) : []);
   if (thisClock.some((r) => r.sells > 0 || r.buys > 0)) {
     const net = thisClock.reduce((n, r) => n + r.net, 0);
     lines.push(`CLOCK this test (ET, clock net ${signedMoney(net)} — should match bot sells, including $0 losses)`);

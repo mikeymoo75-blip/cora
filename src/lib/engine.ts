@@ -142,8 +142,9 @@ export function ensureWallets(state: DeskState): DeskState {
       quotes,
       reports: state.reports || [],
       scanTape: state.scanTape || [],
-      hourClock: state.clockGen === 4 ? state.hourClock || [] : [],
-      clockGen: 4,
+      hourClock: state.clockGen === 5 ? state.hourClock || [] : [],
+      clockGen: 5,
+      clockEpoch: state.clockGen === 5 ? state.clockEpoch : Date.now(),
       clockScrub: 2,
     };
   } else {

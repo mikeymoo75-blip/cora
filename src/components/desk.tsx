@@ -1106,7 +1106,7 @@ function HomePane({
         )}
       </section>
 
-      <HourClockCard clock={desk.hourClock || []} fills={desk.fills} />
+      <HourClockCard clock={desk.hourClock || []} fills={desk.fills} epoch={desk.clockEpoch || 0} />
 
       <section>
         <div className="mb-3 flex items-end justify-between">
@@ -1187,8 +1187,16 @@ function HomePane({
   );
 }
 
-function HourClockCard({ clock, fills }: { clock: HourClock[]; fills: Fill[] }) {
-  const here = clockFromFills(fills);
+function HourClockCard({
+  clock,
+  fills,
+  epoch,
+}: {
+  clock: HourClock[];
+  fills: Fill[];
+  epoch: number;
+}) {
+  const here = clockFromFills(epoch ? fills.filter((f) => f.ts >= epoch) : []);
   const hours = Array.from({ length: 24 }, (_, h) => {
     const row = here.find((r) => r.hour === h);
     const all = clock.find((r) => r.hour === h);
@@ -1211,14 +1219,12 @@ function HourClockCard({ clock, fills }: { clock: HourClock[]; fills: Fill[] }) 
   });
   const currentHour = nowH === "24" ? 0 : parseInt(nowH, 10) || 0;
   const any = hours.some((h) => h.sells > 0 || h.buys > 0 || h.allSells > 0 || h.allBuys > 0);
-  const thisNet = hours.reduce((n, h) => n + h.net, 0);
   return (
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
         Logging buys, wins, and losses by hour so we can later turn the bot off in dead windows.
-        Never skips. Big number is this test (cashed {signedMoney(thisNet)}). Muted is all tests after
-        the wipe.
+        Clock was wiped — only fills after this pull count. Never skips.
       </p>
       {!any ? (
         <p className="text-sm text-muted">No cashed 5m/15m in this test yet.</p>

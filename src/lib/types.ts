@@ -277,8 +277,10 @@ export type DeskState = {
   scanTape: ScanNote[];
   /** Wins/losses by Eastern hour. Survives New $1,000 test. */
   hourClock: HourClock[];
-  /** Bump to wipe the clock. 4 = count $0 loss redeems. */
+  /** Bump to wipe the clock. 5 = empty, do not rebuild from old fills. */
   clockGen?: number;
+  /** Fills before this ms do not count on the clock. */
+  clockEpoch?: number;
   /** 1 = dropped 6p/7p/8p ET ghost-sell hours. */
   clockScrub?: number;
 };
