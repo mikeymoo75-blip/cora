@@ -1194,9 +1194,11 @@ function HourClockCard({ clock, fills }: { clock: HourClock[]; fills: Fill[] }) 
     const all = clock.find((r) => r.hour === h);
     return {
       hour: h,
+      buys: row?.buys || 0,
       sells: row?.sells || 0,
       wins: row?.wins || 0,
       net: row?.net || 0,
+      allBuys: all?.buys || 0,
       allSells: all?.sells || 0,
       allWins: all?.wins || 0,
       allNet: all?.net || 0,
@@ -1208,14 +1210,15 @@ function HourClockCard({ clock, fills }: { clock: HourClock[]; fills: Fill[] }) 
     hour12: false,
   });
   const currentHour = nowH === "24" ? 0 : parseInt(nowH, 10) || 0;
-  const any = hours.some((h) => h.sells > 0 || h.allSells > 0);
+  const any = hours.some((h) => h.sells > 0 || h.buys > 0 || h.allSells > 0 || h.allBuys > 0);
   const thisNet = hours.reduce((n, h) => n + h.net, 0);
   return (
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
-        Big number is this test — it should match cashed ({signedMoney(thisNet)}). Muted line is all
-        tests, including overnight before you reset.
+        Logging buys, wins, and losses by hour so we can later turn the bot off in dead windows.
+        Never skips. Big number is this test (cashed {signedMoney(thisNet)}). Muted is all tests after
+        the wipe.
       </p>
       {!any ? (
         <p className="text-sm text-muted">No cashed 5m/15m in this test yet.</p>
@@ -1234,11 +1237,13 @@ function HourClockCard({ clock, fills }: { clock: HourClock[]; fills: Fill[] }) 
                 {b.hour === currentHour ? " · now" : ""}
               </p>
               <p className={cn("mt-0.5 font-mono text-xs", b.sells ? signedClass(b.net) : "text-muted")}>
-                {b.sells ? `${b.wins}/${b.sells} · ${signedMoney(b.net)}` : "this test —"}
+                {b.buys || b.sells
+                  ? `${b.buys}b · ${b.wins}/${b.sells} · ${signedMoney(b.net)}`
+                  : "this test —"}
               </p>
-              {b.allSells > 0 && (b.allSells !== b.sells || b.allNet !== b.net) ? (
+              {b.allSells > 0 || b.allBuys > 0 ? (
                 <p className="font-mono text-[10px] text-muted">
-                  all {b.allWins}/{b.allSells} · {signedMoney(b.allNet)}
+                  all {b.allBuys}b · {b.allWins}/{b.allSells} · {signedMoney(b.allNet)}
                 </p>
               ) : null}
             </li>

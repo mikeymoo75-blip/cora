@@ -242,6 +242,7 @@ export type TestRun = {
 export type HourClock = {
   /** 0–23 America/New_York */
   hour: number;
+  buys: number;
   sells: number;
   wins: number;
   losses: number;

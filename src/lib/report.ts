@@ -80,22 +80,26 @@ export function buildReport(state: DeskState): DeskReport {
   lines.push(`  Peak equity ${money(risk.peakEquity)}  drawdown ${risk.drawdownPct.toFixed(1)}%`);
   lines.push(`  Ticket size now ${Math.round(risk.sizeMult * 100)}% of base. ${risk.sizeWhy}`);
   const thisClock = clockFromFills(state.fills || []);
-  if (thisClock.some((r) => r.sells > 0)) {
+  if (thisClock.some((r) => r.sells > 0 || r.buys > 0)) {
     const net = thisClock.reduce((n, r) => n + r.net, 0);
     lines.push(`CLOCK this test (ET, matches cashed ${signedMoney(net)})`);
     for (let h = 0; h < 24; h += 1) {
       const row = thisClock.find((r) => r.hour === h);
-      if (!row?.sells) continue;
-      lines.push(`  ${fmtHourSlot(h)}  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`);
+      if (!row || !(row.sells || row.buys)) continue;
+      lines.push(
+        `  ${fmtHourSlot(h)}  ${row.buys || 0} buys  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`,
+      );
     }
   }
   const clock = state.hourClock || [];
-  if (clock.some((r) => r.sells > 0)) {
-    lines.push("CLOCK all tests (survives reset — do not match this wallet)");
+  if (clock.some((r) => r.sells > 0 || r.buys > 0)) {
+    lines.push("CLOCK all tests (survives reset — for on/off hours later)");
     for (let h = 0; h < 24; h += 1) {
       const row = clock.find((r) => r.hour === h);
-      if (!row?.sells) continue;
-      lines.push(`  ${fmtHourSlot(h)}  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`);
+      if (!row || !(row.sells || row.buys)) continue;
+      lines.push(
+        `  ${fmtHourSlot(h)}  ${row.buys || 0} buys  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`,
+      );
     }
   }
   const copyQ = state.bots.filter((b) => b.strategy === "copy" && b.enabled).map((b) => copyQualityGate(b, state.fills));

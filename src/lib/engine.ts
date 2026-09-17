@@ -1904,16 +1904,27 @@ function isGhostClockFill(fill: Fill): boolean {
 
 export function stampHourClock(state: DeskState, fill: Fill): HourClock[] {
   const clock = [...(state.hourClock || [])];
-  if (fill.kind !== "poly" || fill.side !== "sell") return clock;
+  if (fill.kind !== "poly") return clock;
   if (isGhostClockFill(fill)) return clock;
   const hour = etHour(fill.ts);
   const i = clock.findIndex((r) => r.hour === hour);
-  const win = (fill.realizedPnl || 0) > 0;
-  const row: HourClock = i >= 0 ? { ...clock[i]! } : { hour, sells: 0, wins: 0, losses: 0, net: 0 };
-  row.sells += 1;
-  if (win) row.wins += 1;
-  else row.losses += 1;
-  row.net += fill.realizedPnl || 0;
+  const prev = i >= 0 ? clock[i]! : undefined;
+  const row: HourClock = {
+    hour,
+    buys: prev?.buys || 0,
+    sells: prev?.sells || 0,
+    wins: prev?.wins || 0,
+    losses: prev?.losses || 0,
+    net: prev?.net || 0,
+  };
+  if (fill.side === "buy") {
+    row.buys += 1;
+  } else {
+    row.sells += 1;
+    if ((fill.realizedPnl || 0) > 0) row.wins += 1;
+    else row.losses += 1;
+    row.net += fill.realizedPnl || 0;
+  }
   if (i >= 0) clock[i] = row;
   else clock.push(row);
   return clock.sort((a, b) => a.hour - b.hour);
