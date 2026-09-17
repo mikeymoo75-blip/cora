@@ -121,8 +121,16 @@ export function ensureWallets(state: DeskState): DeskState {
       }
     }
     const poly = wallets.poly;
-    const holdingPoly = Object.values(positions).some((p) => isEventKind(p.kind));
-    if (poly.halted && (poly.cash >= 5 || holdingPoly)) {
+    if (poly.cash < 0) {
+      wallets = {
+        ...wallets,
+        poly: {
+          ...poly,
+          halted: true,
+          haltReason: "Polymarket cash went negative — start a New $1,000 test. Do not keep trading this book.",
+        },
+      };
+    } else if (poly.halted && poly.cash >= 5) {
       wallets = { ...wallets, poly: { ...poly, halted: false, haltReason: "" } };
     }
     const cash = wallets.core.cash + wallets.poly.cash;
@@ -433,16 +441,15 @@ export function applyFill(
 
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return s0;
-    qty = Math.min(qty, pos.qty);
     const end = pos.windowEnd || quote.windowEnd;
-    if (
+    const windowOver = !!(end && Date.now() >= end);
+    const redeem =
       quote.kind === "poly" &&
-      end &&
-      Date.now() >= end &&
-      (quote.price <= 0.04 || quote.price >= 0.96)
-    ) {
-      qty = pos.qty;
-    }
+      windowOver &&
+      (px === 0 || px === 1 || quote.price <= 0.04 || quote.price >= 0.96);
+    if (redeem) qty = pos.qty;
+    else qty = Math.min(qty, pos.qty);
+    if (!(qty > 0)) return s0;
   } else {
     if (quote.kind === "poly") {
       if (!quote.live) return s0;
