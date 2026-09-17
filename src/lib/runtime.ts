@@ -170,6 +170,7 @@ function blank(): DeskState {
     scanTape: [],
     hourClock: [],
     clockGen: 2,
+    clockScrub: 1,
   };
 }
 

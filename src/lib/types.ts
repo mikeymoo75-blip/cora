@@ -278,6 +278,8 @@ export type DeskState = {
   hourClock: HourClock[];
   /** Bump to wipe the clock. 2 = hourly, no skip. */
   clockGen?: number;
+  /** 1 = dropped 6p/7p/8p ET ghost-sell hours. */
+  clockScrub?: number;
 };
 
 export type DeskSnapshot = DeskState & {

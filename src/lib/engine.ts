@@ -142,8 +142,9 @@ export function ensureWallets(state: DeskState): DeskState {
       quotes,
       reports: state.reports || [],
       scanTape: state.scanTape || [],
-      hourClock: state.clockGen === 2 ? state.hourClock || [] : [],
+      hourClock: state.clockGen === 2 ? scrubClockHours(state) : [],
       clockGen: 2,
+      clockScrub: 1,
     };
   } else {
     const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
@@ -1884,6 +1885,14 @@ export function clockFromFills(fills: Fill[]): HourClock[] {
     clock = stampHourClock({ hourClock: clock } as DeskState, f);
   }
   return clock;
+}
+
+const GHOST_HOURS = new Set([18, 19, 20]);
+
+export function scrubClockHours(state: Pick<DeskState, "hourClock" | "clockScrub">): HourClock[] {
+  const clock = state.hourClock || [];
+  if (state.clockScrub === 1) return clock;
+  return clock.filter((r) => !GHOST_HOURS.has(r.hour));
 }
 
 export function stampHourClock(state: DeskState, fill: Fill): HourClock[] {
