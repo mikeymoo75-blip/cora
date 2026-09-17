@@ -391,15 +391,6 @@ export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: numb
     if (side === "sell") {
       if (windowOver && quote.price <= 0.04) return 0;
       if (windowOver && quote.price >= 0.96) return 1;
-      const waited = end ? Date.now() - end : 0;
-      if (windowOver && waited >= 150_000 && pos) {
-        const leg =
-          pos.leg ||
-          (/:down|-dn$/i.test(pos.symbol) ? "down" : /:up|-up$/i.test(pos.symbol) ? "up" : "");
-        const won = sideWon(leg, pos.lastSpot || 0, pos.lastOpen || 0);
-        if (won === true) return 1;
-        if (won === false) return 0;
-      }
       const bid = quote.bid || 0;
       if (!(bid > 0)) return 0;
       return bid;

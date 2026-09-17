@@ -761,10 +761,9 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
     if (q.kind !== "poly") return q;
     const expired =
       (q.windowEnd != null && Date.now() >= q.windowEnd) || (q.horizon ? !isCurrentRound(q) : false);
-    if (expired) return q;
     let next = q;
     if (q.clobTokenId) {
-      const live = clobLive(q.clobTokenId, 5000);
+      const live = clobLive(q.clobTokenId, expired ? 15_000 : 5000);
       if (live) {
         const mid = (live.bid + live.ask) / 2;
         next = {
@@ -779,6 +778,7 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
         };
       }
     }
+    if (expired) return next;
     if (next.horizon && next.asset) {
       const tSpot = twapNow(next.asset, 60);
       const tOpen = next.windowStart ? twapOpen(next.asset, next.windowStart, 60) : 0;
