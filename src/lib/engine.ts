@@ -142,8 +142,8 @@ export function ensureWallets(state: DeskState): DeskState {
       quotes,
       reports: state.reports || [],
       scanTape: state.scanTape || [],
-      hourClock: state.clockGen === 3 ? state.hourClock || [] : [],
-      clockGen: 3,
+      hourClock: state.clockGen === 4 ? state.hourClock || [] : [],
+      clockGen: 4,
       clockScrub: 2,
     };
   } else {
@@ -1888,8 +1888,9 @@ export function scrubClockHours(state: Pick<DeskState, "hourClock" | "clockScrub
 
 function isGhostClockFill(fill: Fill): boolean {
   if (fill.kind !== "poly" || fill.side !== "sell") return false;
-  if (!(fill.notional > 0.01)) return true;
-  if (Math.abs(fill.realizedPnl || 0) <= 0.13 && (fill.fee || 0) >= 0.1 && fill.notional < 0.5) return true;
+  if (!(fill.qty > 0)) return true;
+  const pnl = fill.realizedPnl || 0;
+  if (!(fill.notional > 0.01) && Math.abs(pnl) <= 0.15) return true;
   return false;
 }
 
