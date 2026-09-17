@@ -299,7 +299,7 @@ export function Desk() {
         {(desk.walletViews || []).map((w) => (
           <WalletCard key={w.id} wallet={w} />
         ))}
-        <div className="rounded-lg bg-surface px-2.5 py-1.5 shadow-[var(--shadow-card)]">
+        <div className="rounded-lg bg-surface px-2.5 py-1.5 text-center shadow-[var(--shadow-card)]">
           <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Today · cashed</p>
           <p className={cn("font-display text-base font-semibold tabular-nums md:text-lg", signedClass(cashed))}>
             {signedMoney(cashed)}
@@ -391,7 +391,7 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
   return (
     <div
       className={cn(
-        "rounded-lg px-2.5 py-1.5 text-on shadow-[var(--shadow-card)]",
+        "rounded-lg px-2.5 py-1.5 text-center text-on shadow-[var(--shadow-card)]",
         poly ? "bg-poly" : "bg-core",
       )}
     >
