@@ -1906,3 +1906,11 @@ export function fmtHour(h: number): string {
   const n = hr % 12 || 12;
   return `${n}${am ? "a" : "p"}`;
 }
+
+/** One Eastern hour, e.g. 10:00a. */
+export function fmtHourSlot(h: number): string {
+  const hr = ((h % 24) + 24) % 24;
+  const am = hr < 12;
+  const n = hr % 12 || 12;
+  return `${n}:00${am ? "a" : "p"}`;
+}

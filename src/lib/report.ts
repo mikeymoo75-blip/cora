@@ -1,4 +1,4 @@
-import { fmtHour, sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
+import { fmtHourSlot, sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
 import { money, pct, signedMoney } from "./format";
 import { copyQualityGate, riskView } from "./risk";
 import type { DeskReport, DeskState } from "./types";
@@ -81,11 +81,11 @@ export function buildReport(state: DeskState): DeskReport {
   lines.push(`  Ticket size now ${Math.round(risk.sizeMult * 100)}% of base. ${risk.sizeWhy}`);
   const clock = state.hourClock || [];
   if (clock.some((r) => r.sells > 0)) {
-    lines.push("CLOCK (ET, each hour — log only, still buys in red hours)");
+    lines.push("CLOCK (ET, 1-hour slots — log only, still buys every hour)");
     for (let h = 0; h < 24; h += 1) {
       const row = clock.find((r) => r.hour === h);
       if (!row?.sells) continue;
-      lines.push(`  ${fmtHour(h)}–${fmtHour(h + 1)}  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`);
+      lines.push(`  ${fmtHourSlot(h)}  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`);
     }
   }
   const copyQ = state.bots.filter((b) => b.strategy === "copy" && b.enabled).map((b) => copyQualityGate(b, state.fills));

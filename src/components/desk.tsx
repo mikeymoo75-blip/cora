@@ -14,7 +14,7 @@ import {
 import { toast, Toaster } from "sonner";
 import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
-import { fmtHour, isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
+import { fmtHourSlot, isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
@@ -1205,24 +1205,33 @@ function HourClockCard({ clock }: { clock: HourClock[] }) {
       net: row?.net || 0,
     };
   });
+  const nowH = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+  const currentHour = nowH === "24" ? 0 : parseInt(nowH, 10) || 0;
   const any = hours.some((h) => h.sells > 0);
   return (
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
-        One box per hour. Logging only — we still buy in red hours so the day fills in.
+        24 boxes, one hour each. Logging only — every hour still gets tickets.
       </p>
       {!any ? (
         <p className="text-sm text-muted">Clock reset. Cashed 5m/15m trades will land in their hour.</p>
       ) : (
-        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
           {hours.map((b) => (
-            <li key={b.hour} className="rounded-2xl bg-surface px-4 py-3 shadow-[var(--shadow-card)]">
-              <p className="text-sm font-semibold">
-                {fmtHour(b.hour)}–{fmtHour(b.hour + 1)} ET
+            <li
+              key={b.hour}
+              className={cn(
+                "rounded-xl bg-surface px-3 py-2 shadow-[var(--shadow-card)]",
+                b.hour === currentHour && "ring-2 ring-core",
+              )}
+            >
+              <p className="text-xs font-semibold">
+                {fmtHourSlot(b.hour)}
+                {b.hour === currentHour ? " · now" : ""}
               </p>
-              <p className={cn("mt-1 font-mono text-sm", b.sells ? signedClass(b.net) : "text-muted")}>
-                {b.sells ? `${b.wins}/${b.sells} wins · ${signedMoney(b.net)}` : "no sells yet"}
+              <p className={cn("mt-0.5 font-mono text-xs", b.sells ? signedClass(b.net) : "text-muted")}>
+                {b.sells ? `${b.wins}/${b.sells} · ${signedMoney(b.net)}` : "—"}
               </p>
             </li>
           ))}
