@@ -144,7 +144,7 @@ export function ensureWallets(state: DeskState): DeskState {
       scanTape: state.scanTape || [],
       hourClock: state.clockGen === 2 ? scrubClockHours(state) : [],
       clockGen: 2,
-      clockScrub: 1,
+      clockScrub: 2,
     };
   } else {
     const cash = Number.isFinite(state.cash) ? state.cash : CORE_START + POLY_START;
@@ -1891,13 +1891,21 @@ const GHOST_HOURS = new Set([18, 19, 20]);
 
 export function scrubClockHours(state: Pick<DeskState, "hourClock" | "clockScrub">): HourClock[] {
   const clock = state.hourClock || [];
-  if (state.clockScrub === 1) return clock;
+  if (state.clockScrub === 2) return clock;
   return clock.filter((r) => !GHOST_HOURS.has(r.hour));
+}
+
+function isGhostClockFill(fill: Fill): boolean {
+  if (fill.kind !== "poly" || fill.side !== "sell") return false;
+  if (!(fill.notional > 0.01)) return true;
+  if (Math.abs(fill.realizedPnl || 0) <= 0.13 && (fill.fee || 0) >= 0.1 && fill.notional < 0.5) return true;
+  return false;
 }
 
 export function stampHourClock(state: DeskState, fill: Fill): HourClock[] {
   const clock = [...(state.hourClock || [])];
   if (fill.kind !== "poly" || fill.side !== "sell") return clock;
+  if (isGhostClockFill(fill)) return clock;
   const hour = etHour(fill.ts);
   const i = clock.findIndex((r) => r.hour === hour);
   const win = (fill.realizedPnl || 0) > 0;

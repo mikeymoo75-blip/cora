@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, scrubClockHours, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { riskView } from "./risk";
 import { fetchMarketSnapshot, fetchUpDownRounds, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
 import { ensureTwapStream } from "./twap";
@@ -170,7 +170,7 @@ function blank(): DeskState {
     scanTape: [],
     hourClock: [],
     clockGen: 2,
-    clockScrub: 1,
+    clockScrub: 2,
   };
 }
 
@@ -279,8 +279,12 @@ function load(): DeskState {
       fills,
       positions,
       reports: parsed.reports || [],
-      hourClock: parsed.clockGen === 2 ? parsed.hourClock || [] : [],
+      hourClock: scrubClockHours({
+        hourClock: parsed.clockGen === 2 ? parsed.hourClock || [] : [],
+        clockScrub: parsed.clockScrub,
+      }),
       clockGen: 2,
+      clockScrub: 2,
     });
   } catch {
     return blank();
@@ -400,10 +404,11 @@ export function getState(): DeskState {
   }
   cur = ensurePolyBots(ensureCopyLeaders(ensureWallets(cur)));
   const fitted = fitBotsToBank(cur);
-  if (fitted !== cur) {
-    g().__coraDesk = fitted;
-    save(fitted);
-    return fitted;
+  if (fitted !== cur || fitted.clockScrub !== 2) {
+    const next = { ...fitted, clockScrub: 2, hourClock: scrubClockHours({ ...fitted, clockScrub: fitted.clockScrub }) };
+    g().__coraDesk = next;
+    save(next);
+    return next;
   }
   g().__coraDesk = cur;
   return cur;
