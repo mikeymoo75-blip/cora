@@ -14,7 +14,7 @@ import {
 import { toast, Toaster } from "sonner";
 import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
-import { fmtHourSlot, isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
+import { clockFromFills, fmtHourSlot, isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
 import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
@@ -1106,7 +1106,7 @@ function HomePane({
         )}
       </section>
 
-      <HourClockCard clock={desk.hourClock || []} />
+      <HourClockCard clock={desk.hourClock || []} fills={desk.fills} />
 
       <section>
         <div className="mb-3 flex items-end justify-between">
@@ -1187,27 +1187,38 @@ function HomePane({
   );
 }
 
-function HourClockCard({ clock }: { clock: HourClock[] }) {
+function HourClockCard({ clock, fills }: { clock: HourClock[]; fills: Fill[] }) {
+  const here = clockFromFills(fills);
   const hours = Array.from({ length: 24 }, (_, h) => {
-    const row = clock.find((r) => r.hour === h);
+    const row = here.find((r) => r.hour === h);
+    const all = clock.find((r) => r.hour === h);
     return {
       hour: h,
       sells: row?.sells || 0,
       wins: row?.wins || 0,
       net: row?.net || 0,
+      allSells: all?.sells || 0,
+      allWins: all?.wins || 0,
+      allNet: all?.net || 0,
     };
   });
-  const nowH = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+  const nowH = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hour12: false,
+  });
   const currentHour = nowH === "24" ? 0 : parseInt(nowH, 10) || 0;
-  const any = hours.some((h) => h.sells > 0);
+  const any = hours.some((h) => h.sells > 0 || h.allSells > 0);
+  const thisNet = hours.reduce((n, h) => n + h.net, 0);
   return (
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
-        24 boxes, one hour each. Logging only — every hour still gets tickets.
+        Big number is this test — it should match cashed ({signedMoney(thisNet)}). Muted line is all
+        tests, including overnight before you reset.
       </p>
       {!any ? (
-        <p className="text-sm text-muted">Clock reset. Cashed 5m/15m trades will land in their hour.</p>
+        <p className="text-sm text-muted">No cashed 5m/15m in this test yet.</p>
       ) : (
         <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
           {hours.map((b) => (
@@ -1223,8 +1234,13 @@ function HourClockCard({ clock }: { clock: HourClock[] }) {
                 {b.hour === currentHour ? " · now" : ""}
               </p>
               <p className={cn("mt-0.5 font-mono text-xs", b.sells ? signedClass(b.net) : "text-muted")}>
-                {b.sells ? `${b.wins}/${b.sells} · ${signedMoney(b.net)}` : "—"}
+                {b.sells ? `${b.wins}/${b.sells} · ${signedMoney(b.net)}` : "this test —"}
               </p>
+              {b.allSells > 0 && (b.allSells !== b.sells || b.allNet !== b.net) ? (
+                <p className="font-mono text-[10px] text-muted">
+                  all {b.allWins}/{b.allSells} · {signedMoney(b.allNet)}
+                </p>
+              ) : null}
             </li>
           ))}
         </ul>

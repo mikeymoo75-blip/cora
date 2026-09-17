@@ -1,4 +1,4 @@
-import { fmtHourSlot, sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
+import { clockFromFills, fmtHourSlot, sqnLabel, walletViews, walletIdFor, botScores, markToMarket } from "./engine";
 import { money, pct, signedMoney } from "./format";
 import { copyQualityGate, riskView } from "./risk";
 import type { DeskReport, DeskState } from "./types";
@@ -79,9 +79,19 @@ export function buildReport(state: DeskState): DeskReport {
   }
   lines.push(`  Peak equity ${money(risk.peakEquity)}  drawdown ${risk.drawdownPct.toFixed(1)}%`);
   lines.push(`  Ticket size now ${Math.round(risk.sizeMult * 100)}% of base. ${risk.sizeWhy}`);
+  const thisClock = clockFromFills(state.fills || []);
+  if (thisClock.some((r) => r.sells > 0)) {
+    const net = thisClock.reduce((n, r) => n + r.net, 0);
+    lines.push(`CLOCK this test (ET, matches cashed ${signedMoney(net)})`);
+    for (let h = 0; h < 24; h += 1) {
+      const row = thisClock.find((r) => r.hour === h);
+      if (!row?.sells) continue;
+      lines.push(`  ${fmtHourSlot(h)}  ${row.wins}/${row.sells} wins  ${signedMoney(row.net)}`);
+    }
+  }
   const clock = state.hourClock || [];
   if (clock.some((r) => r.sells > 0)) {
-    lines.push("CLOCK (ET, 1-hour slots — log only, still buys every hour)");
+    lines.push("CLOCK all tests (survives reset — do not match this wallet)");
     for (let h = 0; h < 24; h += 1) {
       const row = clock.find((r) => r.hour === h);
       if (!row?.sells) continue;
