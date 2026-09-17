@@ -315,6 +315,7 @@ function save(state: DeskState) {
 type G = typeof globalThis & {
   __coraDesk?: DeskState;
   __coraDeskGen?: number;
+  __coraSaveTimer?: ReturnType<typeof setTimeout>;
   __coraLoop?: ReturnType<typeof setInterval>;
   __coraPumpLoop?: ReturnType<typeof setInterval>;
   __coraPolyLoop?: ReturnType<typeof setInterval>;
@@ -419,9 +420,21 @@ export function getState(): DeskState {
   return cur;
 }
 
-function setState(next: DeskState) {
+function setState(next: DeskState, flush = false) {
   g().__coraDesk = next;
-  save(next);
+  if (flush) {
+    const t = g().__coraSaveTimer;
+    if (t) clearTimeout(t);
+    g().__coraSaveTimer = undefined;
+    save(next);
+    return;
+  }
+  if (g().__coraSaveTimer) return;
+  g().__coraSaveTimer = setTimeout(() => {
+    g().__coraSaveTimer = undefined;
+    const cur = g().__coraDesk;
+    if (cur) save(cur);
+  }, 3000);
 }
 
 function deskGen(): number {
@@ -872,7 +885,7 @@ export function resetBook(name?: string) {
   next.halted = false;
   next.haltReason = "";
   next.equity = [{ t: Date.now(), v: STARTING }];
-  setState(next);
+  setState(next, true);
   bumpDeskGen();
   return snapshot();
 }
