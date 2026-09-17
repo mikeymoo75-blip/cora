@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { COPY_LEADERS } from "./copy-leaders";
 import { fetchCopyPack } from "./copy";
 import { buildReport } from "./report";
-import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, scrubClockHours, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
+import { applyFill, blankWallets, botScores, deskStats, ensureWallets, markToMarket, mergeQuotes, prunePumpQuotes, pruneStaleQuotes, stockMarketOpen, tickBots, tickHeldExits, todayStamp, walletEquity, walletViews } from "./engine";
 import { riskView } from "./risk";
 import { fetchMarketSnapshot, fetchUpDownRounds, overlayLivePoly, refreshHeldAll, yahooOne } from "./quotes-core";
 import { ensureTwapStream } from "./twap";
@@ -169,7 +169,7 @@ function blank(): DeskState {
     reports: [],
     scanTape: [],
     hourClock: [],
-    clockGen: 2,
+    clockGen: 3,
     clockScrub: 2,
   };
 }
@@ -279,11 +279,8 @@ function load(): DeskState {
       fills,
       positions,
       reports: parsed.reports || [],
-      hourClock: scrubClockHours({
-        hourClock: parsed.clockGen === 2 ? parsed.hourClock || [] : [],
-        clockScrub: parsed.clockScrub,
-      }),
-      clockGen: 2,
+      hourClock: parsed.clockGen === 3 ? parsed.hourClock || [] : [],
+      clockGen: 3,
       clockScrub: 2,
     });
   } catch {
@@ -404,8 +401,13 @@ export function getState(): DeskState {
   }
   cur = stripStaleBags(ensurePolyBots(ensureCopyLeaders(ensureWallets(cur))));
   const fitted = fitBotsToBank(cur);
-  if (fitted !== cur || fitted.clockScrub !== 2) {
-    const next = { ...fitted, clockScrub: 2, hourClock: scrubClockHours({ ...fitted, clockScrub: fitted.clockScrub }) };
+  if (fitted !== cur || fitted.clockGen !== 3) {
+    const next = {
+      ...fitted,
+      clockGen: 3,
+      clockScrub: 2,
+      hourClock: fitted.clockGen === 3 ? fitted.hourClock || [] : [],
+    };
     g().__coraDesk = next;
     save(next);
     return next;
@@ -852,7 +854,7 @@ export function resetBook(name?: string) {
   next.tests = tests.slice(0, 40);
   next.reports = s.reports || [];
   next.hourClock = s.hourClock || [];
-  next.clockGen = s.clockGen;
+  next.clockGen = 3;
   next.clockScrub = s.clockScrub;
   next.runStartedAt = Date.now();
   next.positions = {};
