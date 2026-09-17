@@ -397,12 +397,12 @@ export function getState(): DeskState {
   let cur = g().__coraDesk;
   if (cur && cur.startingCash >= 10_000) cur = undefined;
   if (!cur) {
-    cur = ensurePolyBots(ensureCopyLeaders(ensureWallets(fitBotsToBank(load()))));
+    cur = stripStaleBags(ensurePolyBots(ensureCopyLeaders(ensureWallets(fitBotsToBank(load())))));
     g().__coraDesk = cur;
     save(cur);
     return cur;
   }
-  cur = ensurePolyBots(ensureCopyLeaders(ensureWallets(cur)));
+  cur = stripStaleBags(ensurePolyBots(ensureCopyLeaders(ensureWallets(cur))));
   const fitted = fitBotsToBank(cur);
   if (fitted !== cur || fitted.clockScrub !== 2) {
     const next = { ...fitted, clockScrub: 2, hourClock: scrubClockHours({ ...fitted, clockScrub: fitted.clockScrub }) };
@@ -431,8 +431,25 @@ function bumpDeskGen(): number {
 
 function commitState(next: DeskState, started: number): boolean {
   if (deskGen() !== started) return false;
-  setState(next);
+  const cur = g().__coraDesk;
+  if (cur && (next.runStartedAt || 0) < (cur.runStartedAt || 0)) return false;
+  setState(stripStaleBags(next));
   return true;
+}
+
+function stripStaleBags(state: DeskState): DeskState {
+  const t0 = state.runStartedAt || 0;
+  const positions = Object.fromEntries(
+    Object.entries(state.positions || {}).filter(([, p]) => (p.openedAt || 0) >= t0 - 2000),
+  );
+  const fills = (state.fills || []).filter((f) => f.ts >= t0 - 2000);
+  if (
+    Object.keys(positions).length === Object.keys(state.positions || {}).length &&
+    fills.length === (state.fills || []).length
+  ) {
+    return state;
+  }
+  return { ...state, positions, fills, scanTape: [] };
 }
 
 export function snapshot(): DeskSnapshot {
@@ -563,12 +580,15 @@ async function refreshCopy(force = false) {
 export async function tickOnce(): Promise<DeskSnapshot> {
   ensureTwapStream();
   const started = deskGen();
-  let s = getState();
   try {
     const snap = await fetchMarketSnapshot();
+    if (deskGen() !== started) return snapshot();
+    let s = getState();
     const heldList = Object.values(s.positions).map((p) => ({ id: p.symbol, kind: p.kind }));
     const held = new Set(heldList.map((h) => h.id));
     const heldLive = await refreshHeldAll(heldList).catch(() => []);
+    if (deskGen() !== started) return snapshot();
+    s = getState();
     const incoming = overlayLivePoly([...snap.quotes, ...heldLive]);
     s = {
       ...s,
@@ -621,16 +641,17 @@ export async function tickOnce(): Promise<DeskSnapshot> {
 
 export async function tickHeldExitsLoop(): Promise<void> {
   const started = deskGen();
-  const s = getState();
-  const held = Object.values(s.positions).map((p) => ({ id: p.symbol, kind: p.kind }));
+  const held = Object.values(getState().positions).map((p) => ({ id: p.symbol, kind: p.kind }));
   if (!held.length) return;
   try {
     const fresh = await refreshHeldAll(held);
     if (deskGen() !== started) return;
-    const merged = mergeQuotes(s.quotes, fresh);
+    const live = getState();
+    if (!Object.keys(live.positions).length) return;
+    const merged = mergeQuotes(live.quotes, fresh);
     const quotes: DeskState["quotes"] = {};
     for (const q of overlayLivePoly(merged)) quotes[q.id] = q;
-    let next = { ...s, quotes };
+    let next = { ...live, quotes };
     next = tickHeldExits(next);
     next = { ...next, loopAt: Date.now(), loopOk: true };
     commitState(next, started);
@@ -644,8 +665,8 @@ export async function refreshUpDownLoop(): Promise<void> {
   try {
     const rounds = await fetchUpDownRounds();
     if (!rounds.length) return;
-    const s = getState();
     if (deskGen() !== started) return;
+    const s = getState();
     const quotes: DeskState["quotes"] = {};
     for (const q of overlayLivePoly(mergeQuotes(s.quotes, rounds))) quotes[q.id] = q;
     commitState({ ...s, quotes, loopAt: Date.now(), loopOk: true }, started);
@@ -820,6 +841,7 @@ export function resetBook(name?: string) {
       lastSignal: "idle",
       lastTickAt: 0,
       lastScan: [],
+      lastSold: {},
       lastReason: polySniper
         ? "New test — $500 / $500. Favorite-side 5m/15m."
         : "Off for this test.",
@@ -830,6 +852,8 @@ export function resetBook(name?: string) {
   next.tests = tests.slice(0, 40);
   next.reports = s.reports || [];
   next.hourClock = s.hourClock || [];
+  next.clockGen = s.clockGen;
+  next.clockScrub = s.clockScrub;
   next.runStartedAt = Date.now();
   next.positions = {};
   next.fills = [];
@@ -843,6 +867,7 @@ export function resetBook(name?: string) {
   next.haltReason = "";
   next.equity = [{ t: Date.now(), v: STARTING }];
   setState(next);
+  bumpDeskGen();
   return snapshot();
 }
 
