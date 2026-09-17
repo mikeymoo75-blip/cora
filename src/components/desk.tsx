@@ -299,7 +299,7 @@ export function Desk() {
         {(desk.walletViews || []).map((w) => (
           <WalletCard key={w.id} wallet={w} />
         ))}
-        <div className="rounded-lg bg-surface px-2.5 py-1.5 text-center shadow-[var(--shadow-card)]">
+        <div className="rounded-md bg-surface px-2.5 py-1.5 text-center shadow-[var(--shadow-card)]">
           <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Today · cashed</p>
           <p className={cn("font-display text-base font-semibold tabular-nums md:text-lg", signedClass(cashed))}>
             {signedMoney(cashed)}
@@ -388,24 +388,16 @@ export function Desk() {
 
 function WalletCard({ wallet }: { wallet: WalletView }) {
   const poly = wallet.id === "poly";
+  const bags = poly ? wallet.equity - wallet.cash : 0;
   return (
-    <div
-      className={cn(
-        "rounded-lg px-2.5 py-1.5 text-center text-on shadow-[var(--shadow-card)] dark:text-black",
-        poly ? "bg-poly" : "bg-core",
-      )}
-    >
-      <p className="text-[10px] font-semibold tracking-wide uppercase opacity-80">
-        {poly ? "Polymarket" : "Stocks + crypto"}
-      </p>
-      <p className="font-display text-base font-semibold tabular-nums md:text-lg">
-        {compactMoney(poly ? wallet.cash : wallet.equity)}
-      </p>
-      <p className="truncate text-[10px] opacity-90">
+    <div className={cn("wallet-chip", poly ? "wallet-chip-poly" : "wallet-chip-core")}>
+      <p className="wallet-chip-label">{poly ? "Polymarket" : "Stocks + crypto"}</p>
+      <p className="wallet-chip-amt">{compactMoney(poly ? wallet.cash : wallet.equity)}</p>
+      <p className="wallet-chip-sub">
         {poly ? (
           <>
             cashed {signedMoney(wallet.realizedPnl)}
-            {wallet.equity - wallet.cash > 1 ? ` · in bags ${compactMoney(wallet.equity - wallet.cash)}` : ""}
+            {bags > 1 ? ` · bags ${compactMoney(bags)}` : ""}
           </>
         ) : (
           <>cashed {signedMoney(wallet.realizedPnl)}</>

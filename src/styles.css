@@ -15,6 +15,7 @@
   --color-poly: #c2410c;
   --color-border: #e4d9c6;
   --color-on: #fffaf1;
+  --color-chip-ink: #14110e;
   --font-sans: "Nunito Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -47,6 +48,7 @@
     --color-poly: #e07038;
     --color-border: #3a342c;
     --color-on: #fffaf1;
+    --color-chip-ink: #14110e;
     --shadow-card: 0 1px 0 rgba(255, 250, 241, 0.04), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
   }
   html,
@@ -75,6 +77,58 @@
 
 .font-display {
   font-family: var(--font-display);
+}
+
+.wallet-chip {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.65rem 0.45rem;
+  text-align: center;
+  color: var(--color-chip-ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 241, 0.38),
+    0 1px 0 rgba(26, 24, 20, 0.06),
+    0 8px 20px -14px rgba(26, 24, 20, 0.45);
+}
+.wallet-chip-core {
+  background: color-mix(in srgb, var(--color-core) 92%, white);
+}
+.wallet-chip-poly {
+  background: color-mix(in srgb, var(--color-poly) 92%, white);
+}
+.wallet-chip-label {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+.wallet-chip-amt {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.wallet-chip-sub {
+  font-size: 0.625rem;
+  font-weight: 600;
+  opacity: 0.78;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html.dark .wallet-chip {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 241, 0.22),
+    0 10px 22px -14px rgba(0, 0, 0, 0.65);
+}
+html.dark .wallet-chip-core {
+  background: color-mix(in srgb, var(--color-core) 78%, white);
+}
+html.dark .wallet-chip-poly {
+  background: color-mix(in srgb, var(--color-poly) 78%, white);
 }
 
 .round-odds {
