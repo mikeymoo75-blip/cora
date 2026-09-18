@@ -22,6 +22,14 @@ export const UPDOWN_ASSETS: UpDownFeed[] = [
 
 export const UPDOWN_ORDER = UPDOWN_ASSETS.map((a) => a.asset);
 
+export function posPastRound(pos: Position, now = Date.now()): boolean {
+  const end = pos.windowEnd;
+  if (end && now >= end + 8 * 60_000) return true;
+  const span = pos.horizon === "15m" ? 900_000 : 300_000;
+  if (pos.openedAt && now - pos.openedAt >= span + 8 * 60_000) return true;
+  return false;
+}
+
 export type UpDownWindow = {
   asset: UpDownAsset;
   horizon: UpDownHorizon;
@@ -199,7 +207,7 @@ export function updownExplain(
     if (windowOver && (last <= 0.04 || last >= 0.96)) {
       return { action: "sell", why: `Polymarket resolved at ${Math.round(last * 100)}¢.` };
     }
-    if (windowOver && end && now - end >= 8 * 60_000) {
+    if (posPastRound(pos, now)) {
       return {
         action: "sell",
         why: "Round over 8m with no 0/1 print — flattening leftover so slots are not stuck overnight.",

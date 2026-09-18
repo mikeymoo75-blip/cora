@@ -10,7 +10,7 @@ import {
   touchWalletRisk,
 } from "./risk";
 import { slipBps } from "./universe";
-import { isCurrentRound, pairLocks, sideWon, updownExplain, windowBounds } from "./updown";
+import { isCurrentRound, pairLocks, posPastRound, sideWon, updownExplain, windowBounds } from "./updown";
 import type {
   Bot,
   BotScore,
@@ -1654,7 +1654,29 @@ export function tickHeldExits(state: DeskState): DeskState {
   };
 
   for (const pos of Object.values(next.positions)) {
-    const quote = next.quotes[pos.symbol];
+    let quote = next.quotes[pos.symbol];
+    if (pos.kind === "poly" && posPastRound(pos) && !quote) {
+      const px = pos.lastMark || pos.avg || 0.5;
+      quote = {
+        id: pos.symbol,
+        symbol: pos.symbol,
+        name: pos.symbol,
+        kind: "poly",
+        price: px,
+        changePct: 0,
+        volume: 0,
+        spark: [],
+        live: false,
+        bid: px,
+        ask: px,
+        windowStart: pos.windowStart,
+        windowEnd: pos.windowEnd,
+        horizon: pos.horizon,
+        asset: pos.asset,
+        leg: pos.leg,
+      };
+      next = { ...next, quotes: { ...next.quotes, [pos.symbol]: quote } };
+    }
     const windowOver = isSettling(pos);
     const frozenHard = !!(windowOver && pos.closedMark && pos.settleSide && pos.lastSpot && pos.lastOpen);
     const last = honestBookPx(quote?.price) || pos.lastMark;
