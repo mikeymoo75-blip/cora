@@ -1638,6 +1638,28 @@ export function tickBots(state: DeskState): DeskState {
   };
 }
 
+function stubHeldQuote(pos: Position): Quote {
+  const px = pos.lastMark && pos.lastMark > 0 ? pos.lastMark : pos.avg || 0.5;
+  return {
+    id: pos.symbol,
+    symbol: pos.symbol,
+    name: pos.symbol,
+    kind: pos.kind,
+    price: px,
+    changePct: 0,
+    volume: 0,
+    spark: [],
+    live: false,
+    bid: px,
+    ask: px,
+    windowStart: pos.windowStart,
+    windowEnd: pos.windowEnd,
+    horizon: pos.horizon,
+    asset: pos.asset,
+    leg: pos.leg,
+  };
+}
+
 /** Fast path: re-mark every open bag and sell if the rule says so. Used every 10s. */
 export function tickHeldExits(state: DeskState): DeskState {
   let next = ensureWallets(state);
@@ -1652,6 +1674,28 @@ export function tickHeldExits(state: DeskState): DeskState {
     const fill = next.fills.find((f) => f.symbol === sym && f.botId);
     return fill ? bots.find((b) => b.id === fill.botId) : undefined;
   };
+
+  for (const pos of Object.values(next.positions)) {
+    if (pos.kind !== "poly" || !posPastRound(pos)) continue;
+    const quote = next.quotes[pos.symbol] || stubHeldQuote(pos);
+    if (!next.quotes[pos.symbol]) {
+      next = { ...next, quotes: { ...next.quotes, [pos.symbol]: quote } };
+    }
+    const actor = ownerOf(pos.symbol);
+    next = applyFill(
+      next,
+      "sell",
+      pos.symbol,
+      pos.kind,
+      pos.qty * (quote.price || pos.avg || 1),
+      "bot",
+      actor?.name || "Hold watch",
+      `${quote.symbol}: Round over 8m with no 0/1 — flattening leftover.`,
+      actor?.name,
+      actor?.id,
+    );
+    if (!next.positions[pos.symbol]) sold = true;
+  }
 
   for (const pos of Object.values(next.positions)) {
     let quote = next.quotes[pos.symbol];
@@ -1718,7 +1762,12 @@ export function tickHeldExits(state: DeskState): DeskState {
             ...stamped,
             peak: windowOver ? stamped.peak : Math.max(stamped.peak, honestBookPx(quote.price) || stamped.peak),
             windowStart: stamped.windowStart || quote.windowStart,
-            windowEnd: stamped.windowEnd || quote.windowEnd || positionWindowEnd(stamped),
+            windowEnd:
+              stamped.windowEnd ||
+              (stamped.windowStart && quote.windowStart && quote.windowStart !== stamped.windowStart
+                ? undefined
+                : quote.windowEnd) ||
+              positionWindowEnd(stamped),
             horizon: stamped.horizon || quote.horizon,
             asset: stamped.asset || quote.asset,
             leg: stamped.leg || quote.leg,

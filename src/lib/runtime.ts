@@ -735,9 +735,10 @@ export function tickPolyFast(): void {
   const started = deskGen();
   const s = getState();
   const poly = Object.values(s.quotes).filter((q) => q.kind === "poly");
-  if (!poly.length) return;
   const quotes = { ...s.quotes };
-  for (const q of overlayLivePoly(poly)) quotes[q.id] = q;
+  if (poly.length) {
+    for (const q of overlayLivePoly(poly)) quotes[q.id] = q;
+  }
   let next = { ...s, quotes };
   next = tickHeldExits(next);
   commitState({ ...next, loopAt: Date.now(), loopOk: true }, started);

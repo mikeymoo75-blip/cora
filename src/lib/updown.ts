@@ -23,10 +23,13 @@ export const UPDOWN_ASSETS: UpDownFeed[] = [
 export const UPDOWN_ORDER = UPDOWN_ASSETS.map((a) => a.asset);
 
 export function posPastRound(pos: Position, now = Date.now()): boolean {
+  if (pos.kind && pos.kind !== "poly") return false;
   const end = pos.windowEnd;
   if (end && now >= end + 8 * 60_000) return true;
   const span = pos.horizon === "15m" ? 900_000 : 300_000;
-  if (pos.openedAt && now - pos.openedAt >= span + 8 * 60_000) return true;
+  const t0 = pos.openedAt || 0;
+  if (t0 && now - t0 >= span + 8 * 60_000) return true;
+  if (!t0 && !end) return true;
   return false;
 }
 
