@@ -16,7 +16,7 @@ import { PriceRace, TickPrice } from "@/components/spark";
 import { cn } from "@/lib/cn";
 import { clockFromFills, fmtHourSlot, isSettling, positionMark, positionWindowEnd } from "@/lib/engine";
 import { COPY_LEADERS } from "@/lib/copy-leaders";
-import { ago, clock, compactMoney, durationFmt, eventOdds, money, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
+import { ago, clock, compactMoney, durationFmt, eventOdds, money, openedStamp, pct, qtyFmt, runWindow, signedClass, signedMoney } from "@/lib/format";
 import { useServerDesk } from "@/lib/store";
 import type {
   BotScore,
@@ -1064,6 +1064,12 @@ function HomePane({
                       </p>
                     </div>
                   </div>
+                  {p.openedAt ? (
+                    <p className="mt-1 text-xs text-muted">
+                      Opened {openedStamp(p.openedAt)}
+                      <span className="text-muted"> · {ago(p.openedAt)}</span>
+                    </p>
+                  ) : null}
                   {showClock && (
                     <p
                       className={cn(

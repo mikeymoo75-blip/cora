@@ -67,6 +67,19 @@ export function clock(ts: number): string {
   });
 }
 
+export function openedStamp(ts: number): string {
+  if (!ts) return "";
+  const when = new Date(ts).toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${when} ET`;
+}
+
 export function durationFmt(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
   if (total < 60) return `${total}s`;
