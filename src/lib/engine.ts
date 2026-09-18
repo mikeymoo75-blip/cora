@@ -224,7 +224,12 @@ export function isSettling(p: Position, now = Date.now()): boolean {
 /** Live mark, or frozen close if this round's clock already hit 0:00. */
 export function positionMark(p: Position, q?: Quote, now = Date.now()): number {
   if (isSettling(p, now)) {
-    return honestBookPx(p.closedMark) || honestBookPx(p.lastMark) || p.avg;
+    const live = q?.price;
+    if (live != null && live <= 0.04) return 0;
+    if (live != null && live >= 0.96) return 1;
+    if (p.closedMark != null && p.closedMark > 0) return p.closedMark;
+    if (p.lastMark != null && p.lastMark > 0) return p.lastMark;
+    return p.avg;
   }
   return honestBookPx(q?.price) || honestBookPx(p.lastMark) || p.avg;
 }
@@ -423,8 +428,14 @@ export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: numb
     if (side === "sell") {
       if (windowOver && quote.price <= 0.04) return 0;
       if (windowOver && quote.price >= 0.96) return 1;
+      if (windowOver && pos) {
+        const won = sideWon(pos.leg, pos.lastSpot || 0, pos.lastOpen || 0);
+        if (polyBagStale(pos) && won === true) return 1;
+        if (polyBagStale(pos) && won === false) return 0;
+      }
+      if (windowOver) return Number.NaN;
       const bid = quote.bid || 0;
-      if (!(bid > 0)) return 0;
+      if (!(bid > 0)) return Number.NaN;
       return bid;
     }
     const ask = quote.ask || 0;
@@ -452,7 +463,7 @@ export function applyFill(
   let s0 = ensureWallets(state);
   let quote = s0.quotes[symbol];
   const held = s0.positions[symbol];
-  if (side === "sell" && held?.kind === "poly" && (!quote || !(quote.price > 0))) {
+  if (side === "sell" && held?.kind === "poly" && !quote) {
     quote = stubHeldQuote(held);
     s0 = { ...s0, quotes: { ...s0.quotes, [symbol]: quote } };
   }
@@ -1704,10 +1715,12 @@ export function tickHeldExits(state: DeskState): DeskState {
       "sell",
       pos.symbol,
       pos.kind,
-      pos.qty * (quote.price || pos.avg || 1),
+      pos.qty * Math.max(quote.price > 0 ? quote.price : 0, pos.avg || 1),
       "bot",
       actor?.name || "Hold watch",
-      `${quote.symbol}: Round over 8m with no 0/1 — flattening leftover.`,
+      quote.price <= 0.04 || quote.price >= 0.96
+        ? `${quote.symbol}: Polymarket resolved at ${Math.round(quote.price * 100)}¢.`
+        : `${quote.symbol}: Round over 8m with no book 0/1 — redeem from Price-to-Beat freeze.`,
       actor?.name,
       actor?.id,
     );
@@ -1874,6 +1887,11 @@ export function mergeQuotes(
       spark,
       changePct: Number.isFinite(changePct) ? changePct : q.changePct,
       seenAt: Date.now(),
+      windowStart: q.windowStart || old?.windowStart,
+      windowEnd: q.windowEnd || old?.windowEnd,
+      pairId: q.pairId || old?.pairId,
+      spot: q.spot ?? old?.spot,
+      openPx: q.openPx ?? old?.openPx,
       ...(old?.horizon && !q.horizon
         ? {
             horizon: old.horizon,

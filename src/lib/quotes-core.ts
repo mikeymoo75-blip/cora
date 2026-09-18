@@ -774,21 +774,24 @@ export function overlayLivePoly(list: Quote[] | Record<string, Quote>): Quote[] 
     if (q.kind !== "poly") return q;
     const expired =
       (q.windowEnd != null && Date.now() >= q.windowEnd) || (q.horizon ? !isCurrentRound(q) : false);
+    const resolved = q.price <= 0.04 || q.price >= 0.96;
     let next = q;
-    if (q.clobTokenId) {
+    if (q.clobTokenId && !(expired && resolved)) {
       const live = clobLive(q.clobTokenId, expired ? 15_000 : 5000);
-      if (live) {
-        const mid = (live.bid + live.ask) / 2;
-        next = {
-          ...next,
-          bid: live.bid,
-          ask: live.ask,
-          askSize: live.askSize || next.askSize,
-          price: mid,
-          spreadBps: mid > 0 ? ((live.ask - live.bid) / mid) * 10_000 : next.spreadBps,
-          live: true,
-          seenAt: Date.now(),
-        };
+      if (live && !(expired && (live.bid <= 0.04 || live.ask >= 0.96 || live.bid >= 0.96))) {
+        const mid = resolved ? q.price : (live.bid + live.ask) / 2;
+        if (!resolved) {
+          next = {
+            ...next,
+            bid: live.bid,
+            ask: live.ask,
+            askSize: live.askSize || next.askSize,
+            price: mid,
+            spreadBps: mid > 0 ? ((live.ask - live.bid) / mid) * 10_000 : next.spreadBps,
+            live: true,
+            seenAt: Date.now(),
+          };
+        }
       }
     }
     if (expired) return next;

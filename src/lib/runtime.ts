@@ -294,7 +294,7 @@ function load(): DeskState {
 
 function bookSig(state: DeskState): string {
   const pos = Object.values(state.positions || {})
-    .map((p) => `${p.symbol}:${p.qty.toFixed(4)}`)
+    .map((p) => `${p.symbol}:${p.qty.toFixed(4)}:${p.settleSide || ""}:${(p.closedMark || 0).toFixed(3)}`)
     .sort()
     .join(",");
   const w = state.wallets;
@@ -368,11 +368,10 @@ function fitBotsToBank(state: DeskState): DeskState {
           lastReason: "Pump.fun retired — use the Polymarket bots.",
         };
       }
-      if (f && b.id === "bot-scan-poly" && (b.name !== f.name || b.sizeUsd !== f.sizeUsd || b.maxNames !== f.maxNames || b.lockedUntil || !b.enabled)) {
+      if (f && b.id === "bot-scan-poly" && (b.name !== f.name || b.sizeUsd !== f.sizeUsd || b.maxNames !== f.maxNames || b.lockedUntil)) {
         changed = true;
         return {
           ...b,
-          enabled: true,
           name: f.name,
           sizeUsd: f.sizeUsd,
           maxNames: f.maxNames,
@@ -786,8 +785,7 @@ export function startDeskLoop() {
 export function placeOrder(side: "buy" | "sell", symbol: string, notional: number, close = false) {
   const s = getState();
   const q = s.quotes[symbol];
-  if (!q) return snapshot();
-  const pos = s.positions[q.id];
+  const pos = s.positions[symbol] || (q ? s.positions[q.id] : undefined);
   let size = Math.max(0, notional);
   let reason =
     side === "buy"
@@ -796,17 +794,20 @@ export function placeOrder(side: "buy" | "sell", symbol: string, notional: numbe
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return snapshot();
     if (close) {
-      size = pos.qty * q.price * 1.1;
+      const px = (q?.price && q.price > 0 ? q.price : pos.avg) || 1;
+      size = pos.qty * px * 1.1;
       reason =
         "You closed this yourself. Bots skip this name for 30 minutes so they do not buy it back.";
     }
+  } else if (!q) {
+    return snapshot();
   }
   if (size < 1 && !close) return snapshot();
   const next = applyFill(
     s,
     side,
-    q.id,
-    q.kind,
+    pos?.symbol || q!.id,
+    pos?.kind || q!.kind,
     size,
     "manual",
     undefined,
