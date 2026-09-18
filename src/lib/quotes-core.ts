@@ -550,21 +550,31 @@ export async function refreshHeldPoly(heldIds: string[]): Promise<Quote[]> {
     const { marketId } = parsePolyId(id);
     if (!/^\d+$/.test(marketId)) continue;
     try {
-      const json = await fetchJson(
-        `https://gamma-api.polymarket.com/markets?id=${encodeURIComponent(marketId)}`,
+      let row: GammaMarket | undefined;
+      const direct = await fetchJson(
+        `https://gamma-api.polymarket.com/markets/${encodeURIComponent(marketId)}`,
         7000,
-      );
-      const row = Array.isArray(json) ? (json as GammaMarket[])[0] : (json as GammaMarket);
+      ).catch(() => null);
+      if (direct && !Array.isArray(direct)) row = direct as GammaMarket;
+      if (!row) {
+        const json = await fetchJson(
+          `https://gamma-api.polymarket.com/markets?id=${encodeURIComponent(marketId)}`,
+          7000,
+        );
+        row = Array.isArray(json) ? (json as GammaMarket[])[0] : (json as GammaMarket);
+      }
       if (!row) continue;
       const { leg } = parsePolyId(id);
       const prices = parseJsonArray(row.outcomePrices).map(Number);
       const raw = leg === "down" ? prices[1] : prices[0];
-      const px = Number.isFinite(raw) ? Math.min(0.999, Math.max(0.001, raw!)) : 0;
-      if (!(px > 0)) continue;
-      const resolved = px <= 0.04 || px >= 0.96;
+      if (!Number.isFinite(raw)) continue;
+      const resolved = row.closed || raw <= 0.04 || raw >= 0.96;
+      const px = resolved ? (raw >= 0.5 ? 1 : 0) : raw;
       const q = marketToQuote(row, true);
       if (!q) continue;
       const ud = (row.slug || "").toLowerCase().match(/^([a-z]+)-updown-(5m|15m)/);
+      const tokens = parseJsonArray(row.clobTokenIds);
+      const tok = leg === "down" ? tokens[1] : tokens[0];
       out.push({
         ...q,
         id,
@@ -573,6 +583,9 @@ export async function refreshHeldPoly(heldIds: string[]): Promise<Quote[]> {
         bid: resolved ? px : q.bid,
         ask: resolved ? px : q.ask,
         askSize: resolved ? 0 : q.askSize,
+        clobTokenId: tok || q.clobTokenId,
+        live: true,
+        seenAt: Date.now(),
         ...(ud
           ? {
               asset: ud[1]!.toUpperCase(),

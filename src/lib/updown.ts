@@ -199,6 +199,12 @@ export function updownExplain(
     if (windowOver && (last <= 0.04 || last >= 0.96)) {
       return { action: "sell", why: `Polymarket resolved at ${Math.round(last * 100)}¢.` };
     }
+    if (windowOver && end && now - end >= 8 * 60_000) {
+      return {
+        action: "sell",
+        why: "Round over 8m with no 0/1 print — flattening leftover so slots are not stuck overnight.",
+      };
+    }
     if (windowOver) {
       return {
         action: "hold",
