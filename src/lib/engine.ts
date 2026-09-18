@@ -384,6 +384,37 @@ export function whySignal(strategy: StrategyId, side: "buy" | "sell"): string {
   return map[strategy][side];
 }
 
+/** 5m/15m leftover: round + 8m, or held 25m. Ignores a poisoned next-round clock. */
+export function polyBagStale(pos: Position, now = Date.now()): boolean {
+  if (pos.kind !== "poly") return false;
+  if (pos.windowEnd && now >= pos.windowEnd + 8 * 60_000) return true;
+  if (pos.openedAt && now - pos.openedAt >= 25 * 60_000) return true;
+  if (!pos.openedAt && !pos.windowEnd) return true;
+  return posPastRound(pos, now);
+}
+
+function stubHeldQuote(pos: Position): Quote {
+  const px = pos.lastMark && pos.lastMark > 0 ? pos.lastMark : pos.avg || 0.5;
+  return {
+    id: pos.symbol,
+    symbol: pos.symbol,
+    name: pos.symbol,
+    kind: pos.kind,
+    price: px,
+    changePct: 0,
+    volume: 0,
+    spark: [],
+    live: false,
+    bid: px,
+    ask: px,
+    windowStart: pos.windowStart,
+    windowEnd: pos.windowEnd,
+    horizon: pos.horizon,
+    asset: pos.asset,
+    leg: pos.leg,
+  };
+}
+
 /** Polymarket taker: buy the ask, sell the bid. Resolved bags redeem 0 or 1 — not 1¢/99¢. */
 export function paperFillPx(quote: Quote, side: "buy" | "sell", windowEnd?: number, pos?: Position): number {
   if (quote.kind === "poly") {
@@ -418,30 +449,38 @@ export function applyFill(
   leaderName?: string,
   botId?: string,
 ): DeskState {
-  const quote = state.quotes[symbol];
-  if (!quote || quote.price <= 0) return state;
-  const s0 = ensureWallets(state);
+  let s0 = ensureWallets(state);
+  let quote = s0.quotes[symbol];
+  const held = s0.positions[symbol];
+  if (side === "sell" && held?.kind === "poly" && (!quote || !(quote.price > 0))) {
+    quote = stubHeldQuote(held);
+    s0 = { ...s0, quotes: { ...s0.quotes, [symbol]: quote } };
+  }
+  if (!quote) return s0;
   const wid = walletIdFor(kind);
   const book = s0.wallets[wid];
 
-  const pos = s0.positions[symbol];
+  const pos = held;
   const expectedPrice = quote.price;
-  const px = paperFillPx(quote, side, pos?.windowEnd || quote.windowEnd, pos);
+  let px = paperFillPx(quote, side, pos?.windowEnd || quote.windowEnd, pos);
   if (!Number.isFinite(px) || px < 0) return s0;
   if (side === "buy" && !(px > 0)) return s0;
   const slipActual = expectedPrice > 0 && px > 0 ? ((px - expectedPrice) / expectedPrice) * 10_000 : 0;
   let qty = px > 0 ? notional / px : 0;
+  const stalePoly = !!(side === "sell" && pos && pos.kind === "poly" && polyBagStale(pos));
 
   if (side === "sell") {
     if (!pos || pos.qty <= 0) return s0;
     const end = pos.windowEnd || quote.windowEnd;
-    const windowOver = !!(end && Date.now() >= end);
+    const windowOver = !!(end && Date.now() >= end) || stalePoly;
     const redeem =
       quote.kind === "poly" &&
       windowOver &&
       (px === 0 || px === 1 || quote.price <= 0.04 || quote.price >= 0.96);
-    if (redeem) qty = pos.qty;
-    else qty = Math.min(qty, pos.qty);
+    if (redeem || stalePoly) {
+      qty = pos.qty;
+      if (!(px > 0) && !redeem) px = pos.lastMark || pos.avg || 0.5;
+    } else qty = Math.min(qty, pos.qty);
     if (!(qty > 0)) return s0;
   } else {
     if (quote.kind === "poly") {
@@ -1638,28 +1677,6 @@ export function tickBots(state: DeskState): DeskState {
   };
 }
 
-function stubHeldQuote(pos: Position): Quote {
-  const px = pos.lastMark && pos.lastMark > 0 ? pos.lastMark : pos.avg || 0.5;
-  return {
-    id: pos.symbol,
-    symbol: pos.symbol,
-    name: pos.symbol,
-    kind: pos.kind,
-    price: px,
-    changePct: 0,
-    volume: 0,
-    spark: [],
-    live: false,
-    bid: px,
-    ask: px,
-    windowStart: pos.windowStart,
-    windowEnd: pos.windowEnd,
-    horizon: pos.horizon,
-    asset: pos.asset,
-    leg: pos.leg,
-  };
-}
-
 /** Fast path: re-mark every open bag and sell if the rule says so. Used every 10s. */
 export function tickHeldExits(state: DeskState): DeskState {
   let next = ensureWallets(state);
@@ -1676,7 +1693,7 @@ export function tickHeldExits(state: DeskState): DeskState {
   };
 
   for (const pos of Object.values(next.positions)) {
-    if (pos.kind !== "poly" || !posPastRound(pos)) continue;
+    if (pos.kind !== "poly" || !polyBagStale(pos)) continue;
     const quote = next.quotes[pos.symbol] || stubHeldQuote(pos);
     if (!next.quotes[pos.symbol]) {
       next = { ...next, quotes: { ...next.quotes, [pos.symbol]: quote } };
@@ -1761,13 +1778,8 @@ export function tickHeldExits(state: DeskState): DeskState {
           [pos.symbol]: {
             ...stamped,
             peak: windowOver ? stamped.peak : Math.max(stamped.peak, honestBookPx(quote.price) || stamped.peak),
-            windowStart: stamped.windowStart || quote.windowStart,
-            windowEnd:
-              stamped.windowEnd ||
-              (stamped.windowStart && quote.windowStart && quote.windowStart !== stamped.windowStart
-                ? undefined
-                : quote.windowEnd) ||
-              positionWindowEnd(stamped),
+            windowStart: stamped.windowStart,
+            windowEnd: stamped.windowEnd,
             horizon: stamped.horizon || quote.horizon,
             asset: stamped.asset || quote.asset,
             leg: stamped.leg || quote.leg,

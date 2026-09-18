@@ -684,6 +684,7 @@ export async function tickOnce(): Promise<DeskSnapshot> {
     await refreshCopy();
     if (deskGen() !== started) return snapshot();
     s = tickBots(getState());
+    s = tickHeldExits(s);
     s = { ...s, loopAt: Date.now(), loopOk: true };
     commitState(s, started);
   } catch (err) {
@@ -711,6 +712,9 @@ export async function tickHeldExitsLoop(): Promise<void> {
     commitState(next, started);
   } catch (err) {
     console.error("[cora] hold-exit tick failed", err);
+    if (deskGen() === started) {
+      commitState({ ...tickHeldExits(getState()), loopAt: Date.now(), loopOk: false }, started);
+    }
   }
 }
 
@@ -725,6 +729,7 @@ export async function refreshUpDownLoop(): Promise<void> {
     for (const q of overlayLivePoly(mergeQuotes(s.quotes, rounds))) quotes[q.id] = q;
     let next = { ...s, quotes, loopAt: Date.now(), loopOk: true };
     next = tickBots(next);
+    next = tickHeldExits(next);
     commitState(next, started);
   } catch (err) {
     console.error("[cora] updown refresh failed", err);
