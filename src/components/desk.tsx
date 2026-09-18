@@ -353,6 +353,9 @@ export function Desk() {
               return found?.id ?? null;
             })
           }
+          onResetHour={(hour) => {
+            void remote.resetHour(hour).then(() => toast("Cleared that hour. New fills still count."));
+          }}
         />
       )}
 
@@ -846,6 +849,7 @@ function HomePane({
   onSellHalf,
   onBuy,
   onAddSymbol,
+  onResetHour,
 }: {
   desk: DeskSnapshot;
   holdings: Position[];
@@ -854,6 +858,7 @@ function HomePane({
   onSellHalf: (id: string) => void;
   onBuy: (id: string, notional: number) => void;
   onAddSymbol: (symbol: string) => Promise<string | null>;
+  onResetHour: (hour: number) => void;
 }) {
   const [buyOpen, setBuyOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1106,7 +1111,13 @@ function HomePane({
         )}
       </section>
 
-      <HourClockCard clock={desk.hourClock || []} fills={desk.fills} epoch={desk.clockEpoch || 0} />
+      <HourClockCard
+        clock={desk.hourClock || []}
+        fills={desk.fills}
+        epoch={desk.clockEpoch || 0}
+        wipes={desk.hourWipes || {}}
+        onResetHour={onResetHour}
+      />
 
       <section>
         <div className="mb-3 flex items-end justify-between">
@@ -1191,12 +1202,16 @@ function HourClockCard({
   clock,
   fills,
   epoch,
+  wipes,
+  onResetHour,
 }: {
   clock: HourClock[];
   fills: Fill[];
   epoch: number;
+  wipes: Record<number, number>;
+  onResetHour: (hour: number) => void;
 }) {
-  const here = clockFromFills(epoch ? fills.filter((f) => f.ts >= epoch) : []);
+  const here = clockFromFills(fills, epoch, wipes);
   const hours = Array.from({ length: 24 }, (_, h) => {
     const row = here.find((r) => r.hour === h);
     const all = clock.find((r) => r.hour === h);
@@ -1218,19 +1233,17 @@ function HourClockCard({
     hour12: false,
   });
   const currentHour = nowH === "24" ? 0 : parseInt(nowH, 10) || 0;
-  const any = hours.some((h) => h.sells > 0 || h.buys > 0 || h.allSells > 0 || h.allBuys > 0);
   return (
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
-        Logging buys, wins, and losses by hour so we can later turn the bot off in dead windows.
-        Clock was wiped — only fills after this pull count. Never skips.
+        Buys, wins, and losses by hour. Clear a box if that hour is bogus. New fills still stamp. Never
+        skips the bot.
       </p>
-      {!any ? (
-        <p className="text-sm text-muted">No cashed 5m/15m in this test yet.</p>
-      ) : (
-        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-          {hours.map((b) => (
+      <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+        {hours.map((b) => {
+          const has = b.buys || b.sells || b.allBuys || b.allSells;
+          return (
             <li
               key={b.hour}
               className={cn(
@@ -1238,14 +1251,24 @@ function HourClockCard({
                 b.hour === currentHour && "ring-2 ring-core",
               )}
             >
-              <p className="text-xs font-semibold">
-                {fmtHourSlot(b.hour)}
-                {b.hour === currentHour ? " · now" : ""}
-              </p>
+              <div className="flex items-start justify-between gap-1">
+                <p className="text-xs font-semibold">
+                  {fmtHourSlot(b.hour)}
+                  {b.hour === currentHour ? " · now" : ""}
+                </p>
+                <button
+                  type="button"
+                  disabled={!has}
+                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-muted hover:bg-elevated hover:text-fg disabled:opacity-30"
+                  onClick={() => onResetHour(b.hour)}
+                >
+                  Clear
+                </button>
+              </div>
               <p className={cn("mt-0.5 font-mono text-xs", b.sells ? signedClass(b.net) : "text-muted")}>
                 {b.buys || b.sells
                   ? `${b.buys}b · ${b.wins}/${b.sells} · ${signedMoney(b.net)}`
-                  : "this test —"}
+                  : "—"}
               </p>
               {b.allSells > 0 || b.allBuys > 0 ? (
                 <p className="font-mono text-[10px] text-muted">
@@ -1253,9 +1276,9 @@ function HourClockCard({
                 </p>
               ) : null}
             </li>
-          ))}
-        </ul>
-      )}
+          );
+        })}
+      </ul>
     </section>
   );
 }

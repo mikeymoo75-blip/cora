@@ -171,6 +171,7 @@ function blank(): DeskState {
     hourClock: [],
     clockGen: 5,
     clockEpoch: Date.now(),
+    hourWipes: {},
     clockScrub: 2,
   };
 }
@@ -283,6 +284,7 @@ function load(): DeskState {
       hourClock: parsed.clockGen === 5 ? parsed.hourClock || [] : [],
       clockGen: 5,
       clockEpoch: parsed.clockGen === 5 ? parsed.clockEpoch || 0 : Date.now(),
+      hourWipes: parsed.hourWipes || {},
       clockScrub: 2,
     });
   } catch {
@@ -865,6 +867,20 @@ export function setBotSize(id: string, sizeUsd: number) {
   return snapshot();
 }
 
+export function resetHourClock(hour: number) {
+  const s = getState();
+  const h = ((hour % 24) + 24) % 24;
+  setState(
+    {
+      ...s,
+      hourClock: (s.hourClock || []).filter((r) => r.hour !== h),
+      hourWipes: { ...(s.hourWipes || {}), [h]: Date.now() },
+    },
+    true,
+  );
+  return snapshot();
+}
+
 export function resetBook(name?: string) {
   const s = getState();
   const ended = markToMarket(s);
@@ -909,6 +925,7 @@ export function resetBook(name?: string) {
   next.hourClock = s.hourClock || [];
   next.clockGen = 5;
   next.clockEpoch = s.clockEpoch;
+  next.hourWipes = s.hourWipes || {};
   next.clockScrub = s.clockScrub;
   next.runStartedAt = Date.now();
   next.positions = {};

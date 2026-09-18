@@ -1871,10 +1871,13 @@ export function hourBucket(hour: number): number {
   return Math.floor(hour / 2) * 2;
 }
 
-export function clockFromFills(fills: Fill[]): HourClock[] {
+export function clockFromFills(fills: Fill[], epoch = 0, wipes?: Record<number, number>): HourClock[] {
   let clock: HourClock[] = [];
   for (const f of [...fills].reverse()) {
-    clock = stampHourClock({ hourClock: clock } as DeskState, f);
+    if (epoch && f.ts < epoch) continue;
+    const hour = etHour(f.ts);
+    if (wipes?.[hour] && f.ts < wipes[hour]!) continue;
+    clock = stampHourClock({ hourClock: clock, hourWipes: wipes } as DeskState, f);
   }
   return clock;
 }
@@ -1900,6 +1903,8 @@ export function stampHourClock(state: DeskState, fill: Fill): HourClock[] {
   if (fill.kind !== "poly") return clock;
   if (isGhostClockFill(fill)) return clock;
   const hour = etHour(fill.ts);
+  const cut = Math.max(state.clockEpoch || 0, state.hourWipes?.[hour] || 0);
+  if (cut && fill.ts < cut) return clock;
   const i = clock.findIndex((r) => r.hour === hour);
   const prev = i >= 0 ? clock[i]! : undefined;
   const row: HourClock = {

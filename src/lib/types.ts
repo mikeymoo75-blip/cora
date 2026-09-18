@@ -281,6 +281,8 @@ export type DeskState = {
   clockGen?: number;
   /** Fills before this ms do not count on the clock. */
   clockEpoch?: number;
+  /** Per-hour wipe. Fills in that ET hour before this ms are ignored. */
+  hourWipes?: Record<number, number>;
   /** 1 = dropped 6p/7p/8p ET ghost-sell hours. */
   clockScrub?: number;
 };

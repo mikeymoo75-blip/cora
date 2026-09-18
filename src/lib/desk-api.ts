@@ -53,6 +53,13 @@ export const removeBot = createServerFn({ method: "POST" })
     return m.removeBot(data.id);
   });
 
+export const resetHourClock = createServerFn({ method: "POST" })
+  .validator((input: { hour: number }) => input)
+  .handler(async ({ data }): Promise<DeskSnapshot> => {
+    const m = await rt();
+    return m.resetHourClock(data.hour);
+  });
+
 export const resetBook = createServerFn({ method: "POST" })
   .validator((input: { name?: string } = {}) => input)
   .handler(async ({ data }): Promise<DeskSnapshot> => {
