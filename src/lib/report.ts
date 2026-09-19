@@ -83,7 +83,7 @@ export function buildReport(state: DeskState): DeskReport {
   const thisClock = clockFromFills(state.fills || [], epoch, state.hourWipes);
   if (thisClock.some((r) => r.sells > 0 || r.buys > 0)) {
     const net = thisClock.reduce((n, r) => n + r.net, 0);
-    lines.push(`CLOCK this test (ET, clock net ${signedMoney(net)} — should match bot sells, including $0 losses)`);
+    lines.push(`CLOCK this test (ET, hour the bag was bought. Net ${signedMoney(net)})`);
     for (let h = 0; h < 24; h += 1) {
       const row = thisClock.find((r) => r.hour === h);
       if (!row || !(row.sells || row.buys)) continue;

@@ -1249,8 +1249,7 @@ function HourClockCard({
     <section>
       <h2 className="font-display text-2xl font-semibold">Clock (ET)</h2>
       <p className="mb-3 text-sm text-muted">
-        Buys, wins, and losses by hour. Clear a box if that hour is bogus. New fills still stamp. Never
-        skips the bot.
+        Buys, wins, and losses by the hour the bag was bought (ET). A 7:58 buy that pays at 8:02 still lands on 7:00. Clear a box if that hour is bogus. Never skips the bot.
       </p>
       <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
         {hours.map((b) => {
