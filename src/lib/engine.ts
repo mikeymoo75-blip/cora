@@ -263,7 +263,7 @@ export function walletViews(state: DeskState): WalletView[] {
       dayPnl: equity - w.dayStartEquity,
       realizedPnl,
       unrealizedPnl,
-      netPnl: realizedPnl + unrealizedPnl,
+      netPnl: equity - (w.startingCash || 0),
       feesPaid,
       halted: w.halted,
       haltReason: w.haltReason,
