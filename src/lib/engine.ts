@@ -1773,10 +1773,10 @@ export function tickHeldExits(state: DeskState): DeskState {
     if (pos.kind === "stock" && !rth) continue;
     const stamped = next.positions[pos.symbol]!;
     if (!frozenHard) {
-      const liveSpot = !windowOver && quote.spot && quote.spot > 0 ? quote.spot : 0;
-      const liveOpen = !windowOver && quote.openPx && quote.openPx > 0 ? quote.openPx : 0;
-      const frozenSpot = windowOver ? stamped.lastSpot : liveSpot || stamped.lastSpot;
-      const frozenOpen = windowOver ? stamped.lastOpen : liveOpen || stamped.lastOpen;
+      const liveSpot = quote.spot && quote.spot > 0 ? quote.spot : 0;
+      const liveOpen = quote.openPx && quote.openPx > 0 ? quote.openPx : 0;
+      const frozenSpot = windowOver ? stamped.lastSpot || liveSpot : liveSpot || stamped.lastSpot;
+      const frozenOpen = windowOver ? stamped.lastOpen || liveOpen : liveOpen || stamped.lastOpen;
       const settleSide =
         stamped.settleSide ||
         (windowOver && frozenSpot && frozenOpen

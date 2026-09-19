@@ -818,11 +818,12 @@ function bagSettledUp(p: Position, spot: number, open: number): boolean | null {
 
 function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; open: number } {
   const ok = (spot: number, open: number) => spot > 0 && open > 0;
-  const sameWindow = (x?: Quote) =>
-    !!(p.windowStart && x?.windowStart && Math.abs(x.windowStart - p.windowStart) <= 2000);
   if (isSettling(p) && ok(p.lastSpot || 0, p.lastOpen || 0)) {
     return { spot: p.lastSpot || 0, open: p.lastOpen || 0 };
   }
+  const sameWindow = (x?: Quote) =>
+    !!(p.windowStart && x?.windowStart && Math.abs(x.windowStart - p.windowStart) <= 2000);
+  if (isSettling(p)) return { spot: 0, open: 0 };
   if (q && ok(q.spot || 0, q.openPx || 0) && (!p.windowStart || !q.windowStart || sameWindow(q))) {
     return { spot: q.spot || 0, open: q.openPx || 0 };
   }
@@ -833,9 +834,7 @@ function bagRace(desk: DeskSnapshot, p: Position, q?: Quote): { spot: number; op
     for (const x of Object.values(desk.quotes)) {
       if ((x.asset || "").toUpperCase() !== asset || x.horizon !== horizon) continue;
       if (!ok(x.spot || 0, x.openPx || 0)) continue;
-      if (sameWindow(x) || (!p.windowStart && isCurrentRound(x))) {
-        return { spot: x.spot || 0, open: x.openPx || 0 };
-      }
+      if (sameWindow(x)) return { spot: x.spot || 0, open: x.openPx || 0 };
     }
   }
   return { spot: 0, open: 0 };
@@ -984,19 +983,26 @@ function HomePane({
                 if (frozen) {
                   mark = frozen.mark;
                   mtm = frozen.mtm;
+                  hit = frozen.hit;
                 } else {
                   settleFreeze.current[p.symbol] = { mark, mtm, hit, end: end || now };
                 }
               } else {
                 delete settleFreeze.current[p.symbol];
               }
+              const coinDownFixed =
+                settling && hit != null ? (leg === "down" ? hit === true : hit === false) : coinDown;
+              const coinUpFixed =
+                settling && hit != null ? (leg === "up" ? hit === true : hit === false) : coinUp;
               const value = p.qty * mark;
               const winning = hit === true && !settling;
               const settleWin = settling && hit === true;
               const settleLose = settling && hit === false;
               const liveLose = !settling && hit === false;
               const pickLabel = leg === "down" ? "DOWN" : leg === "up" ? "UP" : "";
-              const coinLabel = coinDown ? "DOWN" : coinUp ? "UP" : "";
+              const coinLabel = coinDownFixed ? "DOWN" : coinUpFixed ? "UP" : "";
+              const showWith = settling ? hit === true : raceWith;
+              const showAgainst = settling ? hit === false : raceAgainst;
               const cashIfPays =
                 p.kind === "poly" && hit === true
                   ? (1 - p.avg) * p.qty
@@ -1029,18 +1035,18 @@ function HomePane({
                   )}
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className={cn("font-display text-xl font-semibold", raceWith && "text-primary", raceAgainst && "text-down")}>
+                      <p className={cn("font-display text-xl font-semibold", showWith && "text-primary", showAgainst && "text-down")}>
                         {bagTitle(p, q)}
                       </p>
                       {p.kind === "poly" && pickLabel ? (
                         <p
                           className={cn(
                             "mt-1 text-sm font-semibold leading-snug",
-                            raceWith ? "text-primary" : raceAgainst ? "text-down" : "text-muted",
+                            showWith ? "text-primary" : showAgainst ? "text-down" : "text-muted",
                           )}
                         >
                           {coinLabel
-                            ? `You picked ${pickLabel}. Coin is ${coinLabel} — ${raceWith ? "with you" : "against you"}.`
+                            ? `You picked ${pickLabel}. Coin is ${coinLabel} — ${showWith ? "with you" : "against you"}.`
                             : `You picked ${pickLabel}. Waiting on Price-to-Beat.`}
                         </p>
                       ) : (
@@ -1053,12 +1059,12 @@ function HomePane({
                         className={cn(
                           "mt-1 font-mono font-semibold tabular-nums",
                           settling ? "text-base" : "text-xs",
-                          raceWith ? "text-primary" : raceAgainst ? "text-down" : "text-muted",
+                          showWith ? "text-primary" : showAgainst ? "text-down" : "text-muted",
                         )}
                       >
-                        {settling && raceWith
+                        {settling && showWith
                           ? `Pays $1 → ${signedMoney(cashIfPays)}`
-                          : settling && raceAgainst
+                          : settling && showAgainst
                             ? `Pays $0 → ${signedMoney(cashIfPays)}`
                             : `Book ${signedMoney(mtm)} if sold now`}
                       </p>
