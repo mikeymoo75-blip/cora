@@ -112,12 +112,11 @@
   font-variant-numeric: tabular-nums;
 }
 .wallet-chip-sub {
-  font-size: 0.625rem;
+  font-size: 0.58rem;
   font-weight: 600;
-  opacity: 0.78;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  opacity: 0.82;
+  line-height: 1.35;
+  white-space: normal;
 }
 html.dark .wallet-chip {
   box-shadow:

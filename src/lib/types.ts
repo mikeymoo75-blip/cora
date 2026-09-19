@@ -145,6 +145,10 @@ export type Wallet = {
   peakEquity: number;
   monthStamp: string;
   monthStartEquity: number;
+  weekStamp?: string;
+  weekStartEquity?: number;
+  yearStamp?: string;
+  yearStartEquity?: number;
 };
 
 export type WalletView = {
@@ -154,6 +158,9 @@ export type WalletView = {
   equity: number;
   startingCash: number;
   dayPnl: number;
+  weekPnl: number;
+  monthPnl: number;
+  yearPnl: number;
   realizedPnl: number;
   unrealizedPnl: number;
   netPnl: number;

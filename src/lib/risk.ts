@@ -39,6 +39,36 @@ export function monthStamp(at = Date.now()): string {
   return `${y}-${m}`;
 }
 
+export function yearStamp(at = Date.now()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+  }).formatToParts(new Date(at));
+  return parts.find((p) => p.type === "year")?.value || "2026";
+}
+
+export function weekStamp(at = Date.now()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(new Date(at));
+  const y = Number(parts.find((p) => p.type === "year")?.value);
+  const m = Number(parts.find((p) => p.type === "month")?.value);
+  const d = Number(parts.find((p) => p.type === "day")?.value);
+  const wd = parts.find((p) => p.type === "weekday")?.value || "Mon";
+  const back: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  const daysFromMon = back[wd] ?? 0;
+  const utc = Date.UTC(y, m - 1, d) - daysFromMon * 86_400_000;
+  const mon = new Date(utc);
+  const yy = mon.getUTCFullYear();
+  const mm = String(mon.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(mon.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 export function consecutiveStreak(sellsNewestFirst: Fill[]): { wins: number; losses: number } {
   let wins = 0;
   let losses = 0;
@@ -245,12 +275,52 @@ function layerOf(
   return { id, label, usedPct, limitPct: limitPct * 100, usd, status: layerStatus(usedPct) };
 }
 
-export function blankWalletRisk(cash: number): Pick<Wallet, "peakEquity" | "monthStamp" | "monthStartEquity"> {
+export function blankWalletRisk(
+  cash: number,
+): Pick<
+  Wallet,
+  "peakEquity" | "monthStamp" | "monthStartEquity" | "weekStamp" | "weekStartEquity" | "yearStamp" | "yearStartEquity"
+> {
   return {
     peakEquity: cash,
     monthStamp: monthStamp(),
     monthStartEquity: cash,
+    weekStamp: weekStamp(),
+    weekStartEquity: cash,
+    yearStamp: yearStamp(),
+    yearStartEquity: cash,
   };
+}
+
+export function touchWalletRisk(
+  wallet: Wallet,
+  equity: number,
+  at = Date.now(),
+): Wallet {
+  const month = monthStamp(at);
+  const week = weekStamp(at);
+  const year = yearStamp(at);
+  const peak = Math.max(wallet.peakEquity || equity, equity, wallet.startingCash || 0);
+  let next: Wallet = {
+    ...wallet,
+    peakEquity: peak,
+    monthStamp: wallet.monthStamp || month,
+    monthStartEquity: wallet.monthStartEquity || equity,
+    weekStamp: wallet.weekStamp || week,
+    weekStartEquity: wallet.weekStartEquity || wallet.startingCash || equity,
+    yearStamp: wallet.yearStamp || year,
+    yearStartEquity: wallet.yearStartEquity || wallet.startingCash || equity,
+  };
+  if (next.monthStamp !== month) {
+    next = { ...next, monthStamp: month, monthStartEquity: equity };
+  }
+  if (next.weekStamp !== week) {
+    next = { ...next, weekStamp: week, weekStartEquity: equity };
+  }
+  if (next.yearStamp !== year) {
+    next = { ...next, yearStamp: year, yearStartEquity: equity };
+  }
+  return next;
 }
 
 export function riskView(state: DeskState, equityNow: number): RiskView {
@@ -291,28 +361,5 @@ export function riskView(state: DeskState, equityNow: number): RiskView {
     copyQuality: state.bots.filter((b) => b.strategy === "copy" && b.enabled).map((b) => copyQualityGate(b, state.fills)),
     peakEquity: peak,
     drawdownPct: dd * 100,
-  };
-}
-
-export function touchWalletRisk(
-  wallet: Wallet,
-  equity: number,
-  at = Date.now(),
-): Wallet {
-  const month = monthStamp(at);
-  const peak = Math.max(wallet.peakEquity || equity, equity, wallet.startingCash || 0);
-  if (wallet.monthStamp !== month) {
-    return {
-      ...wallet,
-      peakEquity: peak,
-      monthStamp: month,
-      monthStartEquity: equity,
-    };
-  }
-  return {
-    ...wallet,
-    peakEquity: peak,
-    monthStamp: wallet.monthStamp || month,
-    monthStartEquity: wallet.monthStartEquity || equity,
   };
 }

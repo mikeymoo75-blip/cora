@@ -60,10 +60,10 @@ export function buildReport(state: DeskState): DeskReport {
   lines.push("");
   lines.push("WALLETS (Polymarket cannot spend stocks/crypto cash)");
   lines.push(
-    `  Stocks + crypto: cash ${money(core.cash)}  value ${money(core.equity)}  P/L ${money(core.netPnl)}  today ${money(core.dayPnl)}  fees ${money(core.feesPaid)}`,
+    `  Stocks + crypto: cash ${money(core.cash)}  value ${money(core.equity)}  today ${money(core.dayPnl)}  week ${money(core.weekPnl)}  month ${money(core.monthPnl)}  year ${money(core.yearPnl)}  all ${money(core.netPnl)}  fees ${money(core.feesPaid)}`,
   );
   lines.push(
-    `  Polymarket:      cash ${money(pump.cash)}  value ${money(pump.equity)}  P/L ${money(pump.netPnl)}  today ${money(pump.dayPnl)}  fees ${money(pump.feesPaid)}`,
+    `  Polymarket:      cash ${money(pump.cash)}  value ${money(pump.equity)}  today ${money(pump.dayPnl)}  week ${money(pump.weekPnl)}  month ${money(pump.monthPnl)}  year ${money(pump.yearPnl)}  all ${money(pump.netPnl)}  fees ${money(pump.feesPaid)}`,
   );
   if (core.halted) lines.push(`  CORE PAUSED — ${core.haltReason}`);
   if (pump.halted) lines.push(`  POLY PAUSED — ${pump.haltReason}`);

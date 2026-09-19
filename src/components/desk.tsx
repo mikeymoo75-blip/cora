@@ -397,14 +397,12 @@ function WalletCard({ wallet }: { wallet: WalletView }) {
       <p className="wallet-chip-label">{poly ? "Polymarket" : "Stocks + crypto"}</p>
       <p className="wallet-chip-amt">{compactMoney(poly ? wallet.cash : wallet.equity)}</p>
       <p className="wallet-chip-sub">
-        {poly ? (
-          <>
-            cashed {signedMoney(wallet.realizedPnl)}
-            {bags > 1 ? ` · bags ${compactMoney(bags)}` : ""}
-          </>
-        ) : (
-          <>cashed {signedMoney(wallet.realizedPnl)}</>
-        )}
+        today {signedMoney(wallet.dayPnl)}
+        {" · "}wk {signedMoney(wallet.weekPnl)}
+        {" · "}mo {signedMoney(wallet.monthPnl)}
+        {" · "}yr {signedMoney(wallet.yearPnl)}
+        {" · "}all {signedMoney(wallet.netPnl)}
+        {poly && bags > 1 ? ` · bags ${compactMoney(bags)}` : ""}
       </p>
     </div>
   );
